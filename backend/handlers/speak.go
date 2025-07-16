@@ -186,7 +186,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	}
 
 	// Send completion event
-	sendSSEEvent(w, "complete", map[string]interface{}{
+	sendSSEEvent(w, "complete", map[string]any{
 		"note_id": noteRecord.Id,
 		"audio_id": record.Id,
 		"transcribed_text": result.Text,
@@ -195,7 +195,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	})
 }
 
-func sendSSEEvent(w http.ResponseWriter, event string, data interface{}) {
+func sendSSEEvent(w http.ResponseWriter, event string, data any) {
 	jsonData, _ := json.Marshal(data)
 	fmt.Fprintf(w, "event: %s\n", event)
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)
@@ -203,7 +203,7 @@ func sendSSEEvent(w http.ResponseWriter, event string, data interface{}) {
 }
 
 func sendSSEError(w http.ResponseWriter, message string) {
-	errorData := map[string]interface{}{
+	errorData := map[string]any{
 		"error": message,
 		"timestamp": time.Now().Unix(),
 	}
