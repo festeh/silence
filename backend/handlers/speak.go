@@ -12,10 +12,13 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"silence-backend/compression"
 	"silence-backend/env"
+	"silence-backend/logger"
 	"silence-backend/transcription"
 )
 
 func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketBase, env *env.Environment) {
+	logger.Info("Starting audio processing request")
+	
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -43,11 +46,13 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 		var req AudioTranscriptionRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
 		if err != nil {
+			logger.Error("Failed to decode audio transcription request", "error", err)
 			sendSSEError(w, "Failed to decode audio transcription request")
 			return
 		}
 
 		if len(req.PCMData) == 0 {
+			logger.Error("PCM data is empty")
 			sendSSEError(w, "pcm_data is required")
 			return
 		}
@@ -59,8 +64,10 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 		})
 
 		// Use shared transcription function for PCM
+		logger.Info("Starting PCM transcription", "data_size", len(req.PCMData))
 		result, err := transcription.TranscribePCM(req.PCMData, apiKey)
 		if err != nil {
+			logger.Error("Failed to transcribe PCM audio", "error", err)
 			sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
 			return
 		}
@@ -80,8 +87,10 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	}
 
 	// Handle multipart form data (frontend)
+	logger.Info("Processing multipart form data")
 	err := r.ParseMultipartForm(32 << 20) // 32MB max
 	if err != nil {
+		logger.Error("Failed to parse multipart form", "error", err)
 		sendSSEError(w, "Invalid multipart form")
 		return
 	}
@@ -89,6 +98,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	// Get the audio file from the form
 	file, _, err := r.FormFile("audio")
 	if err != nil {
+		logger.Error("Failed to get audio file from form", "error", err)
 		sendSSEError(w, "audio file is required")
 		return
 	}
@@ -103,11 +113,13 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	// Read the WAV file data
 	wavData, err := io.ReadAll(file)
 	if err != nil {
+		logger.Error("Failed to read audio file", "error", err)
 		sendSSEError(w, "Failed to read audio file")
 		return
 	}
 
 	if len(wavData) == 0 {
+		logger.Error("Audio file is empty")
 		sendSSEError(w, "audio file is empty")
 		return
 	}
@@ -120,8 +132,10 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	})
 
 	// Compress the audio data
+	logger.Info("Compressing audio data", "original_size", len(wavData))
 	compressedData, err := compression.CompressAudio(wavData)
 	if err != nil {
+		logger.Error("Failed to compress audio", "error", err)
 		sendSSEError(w, fmt.Sprintf("Failed to compress audio: %v", err))
 		return
 	}
@@ -140,6 +154,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	// Save base64 encoded audio to PocketBase
 	collection, err := app.FindCollectionByNameOrId("audio")
 	if err != nil {
+		logger.Error("Failed to find audio collection", "error", err)
 		sendSSEError(w, "Failed to find audio collection")
 		return
 	}
@@ -150,6 +165,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	record.Set("compressed_size", len(compressedData))
 
 	if err := app.Save(record); err != nil {
+		logger.Error("Failed to save audio to database", "error", err)
 		sendSSEError(w, "Failed to save audio to database")
 		return
 	}
@@ -162,8 +178,10 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	})
 
 	// Use shared transcription function for WAV
+	logger.Info("Starting WAV transcription", "audio_id", record.Id)
 	result, err := transcription.TranscribeWAV(wavData, apiKey)
 	if err != nil {
+		logger.Error("Failed to transcribe WAV audio", "error", err, "audio_id", record.Id)
 		sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
 		return
 	}
@@ -171,6 +189,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	// Create a new note with the transcribed text and audio reference
 	noteCollection, err := app.FindCollectionByNameOrId("notes")
 	if err != nil {
+		logger.Error("Failed to find notes collection", "error", err)
 		sendSSEError(w, "Failed to find notes collection")
 		return
 	}
@@ -181,11 +200,13 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	noteRecord.Set("audio_id", record.Id)
 
 	if err := app.Save(noteRecord); err != nil {
+		logger.Error("Failed to create note", "error", err)
 		sendSSEError(w, "Failed to create note")
 		return
 	}
 
 	// Send completion event
+	logger.Info("Audio processing completed successfully", "note_id", noteRecord.Id, "audio_id", record.Id)
 	sendSSEEvent(w, "complete", map[string]any{
 		"note_id": noteRecord.Id,
 		"audio_id": record.Id,

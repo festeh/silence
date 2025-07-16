@@ -1,20 +1,23 @@
 package main
 
 import (
-	"log"
-
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"silence-backend/env"
 	"silence-backend/handlers"
+	"silence-backend/logger"
 )
 
 func main() {
+	logger.Init()
+	
 	enviroment, err := env.NewEnvironment()
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("Failed to initialize environment", "error", err)
+		panic(err)
 	}
 
+	logger.Info("Starting PocketBase application")
 	app := pocketbase.New()
 
 	// Add custom routes
@@ -33,7 +36,9 @@ func main() {
 		return se.Next()
 	})
 
+	logger.Info("Starting server")
 	if err := app.Start(); err != nil {
-		log.Fatal(err)
+		logger.Error("Failed to start server", "error", err)
+		panic(err)
 	}
 }
