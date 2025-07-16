@@ -8,15 +8,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
 	"silence-backend/compression"
+	"silence-backend/database"
 	"silence-backend/env"
 	"silence-backend/logger"
 	"silence-backend/transcription"
 )
 
-func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketBase, env *env.Environment) {
+func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, env *env.Environment) {
 	logger.Info("Starting audio processing request")
 	
 	// Set SSE headers
@@ -152,19 +151,8 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	})
 
 	// Save base64 encoded audio to PocketBase
-	collection, err := app.FindCollectionByNameOrId("audio")
+	record, err := db.UpsertAudio(base64Data, len(wavData), len(compressedData))
 	if err != nil {
-		logger.Error("Failed to find audio collection", "error", err)
-		sendSSEError(w, "Failed to find audio collection")
-		return
-	}
-
-	record := core.NewRecord(collection)
-	record.Set("data", base64Data)
-	record.Set("original_size", len(wavData))
-	record.Set("compressed_size", len(compressedData))
-
-	if err := app.Save(record); err != nil {
 		logger.Error("Failed to save audio to database", "error", err)
 		sendSSEError(w, "Failed to save audio to database")
 		return
@@ -187,19 +175,8 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, app *pocketbase.PocketB
 	}
 
 	// Create a new note with the transcribed text and audio reference
-	noteCollection, err := app.FindCollectionByNameOrId("notes")
+	noteRecord, err := db.CreateNote(result.Text, "", record.Id)
 	if err != nil {
-		logger.Error("Failed to find notes collection", "error", err)
-		sendSSEError(w, "Failed to find notes collection")
-		return
-	}
-
-	noteRecord := core.NewRecord(noteCollection)
-	noteRecord.Set("title", result.Text)
-	noteRecord.Set("content", "")
-	noteRecord.Set("audio_id", record.Id)
-
-	if err := app.Save(noteRecord); err != nil {
 		logger.Error("Failed to create note", "error", err)
 		sendSSEError(w, "Failed to create note")
 		return

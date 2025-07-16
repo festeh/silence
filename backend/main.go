@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
+	"net/http"
+
+	"silence-backend/database"
 	"silence-backend/env"
 	"silence-backend/handlers"
 	"silence-backend/logger"
@@ -17,28 +18,40 @@ func main() {
 		panic(err)
 	}
 
-	logger.Info("Starting PocketBase application")
-	app := pocketbase.New()
+	logger.Info("Initializing database client")
+	dbClient, err := database.NewClient(enviroment)
+	if err != nil {
+		logger.Error("Failed to initialize database client", "error", err)
+		panic(err)
+	}
+	defer dbClient.Close()
 
-	// Add custom routes
-	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// Register the /speak endpoint
-		se.Router.POST("/speak", func(e *core.RequestEvent) error {
-			// Set CORS headers
-			e.Response.Header().Set("Access-Control-Allow-Origin", "*")
-			e.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			e.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	logger.Info("Setting up HTTP routes")
+	mux := http.NewServeMux()
+	
+	// Add CORS middleware
+	corsHandler := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			
-			handlers.HandleSpeak(e.Response, e.Request, se.App.(*pocketbase.PocketBase), enviroment)
-			return nil
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			
+			next.ServeHTTP(w, r)
 		})
+	}
+	
+	mux.Handle("/speak", corsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.HandleSpeak(w, r, dbClient, enviroment)
+	})))
 
-		return se.Next()
-	})
-
-	logger.Info("Starting server")
-	if err := app.Start(); err != nil {
-		logger.Error("Failed to start server", "error", err)
+	logger.Info("Starting HTTP server on :8080")
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		logger.Error("Failed to start HTTP server", "error", err)
 		panic(err)
 	}
 }
