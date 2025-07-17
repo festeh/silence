@@ -1,170 +1,96 @@
 package database
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
 
-	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/models"
-	"github.com/pocketbase/pocketbase/models/schema"
-	"github.com/pocketbase/pocketbase/tools/types"
+	"github.com/pluja/pocketbase"
 	"silence-backend/env"
 	"silence-backend/logger"
 )
 
 type Client struct {
-	app *core.App
+	client *pocketbase.Client
+}
+
+type AudioRecord struct {
+	ID             string `json:"id"`
+	Data           string `json:"data"`
+	OriginalSize   int    `json:"original_size"`
+	CompressedSize int    `json:"compressed_size"`
+	Created        string `json:"created"`
+	Updated        string `json:"updated"`
+}
+
+type NoteRecord struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	AudioID string `json:"audio_id"`
+	Created string `json:"created"`
+	Updated string `json:"updated"`
 }
 
 func NewClient(env *env.Environment) (*Client, error) {
-	app := core.NewBaseApp(core.BaseAppConfig{
-		DataDir:       "./pb_data",
-		EncryptionEnv: "PB_ENCRYPTION_KEY",
-		IsDebug:       false,
-	})
-
-	if err := app.Bootstrap(); err != nil {
-		return nil, fmt.Errorf("failed to bootstrap PocketBase app: %w", err)
-	}
-
-	client := &Client{app: app}
+	client := pocketbase.NewClient(env.PocketBaseURL)
 	
-	if err := client.ensureSchema(); err != nil {
-		return nil, fmt.Errorf("failed to ensure schema: %w", err)
-	}
-
-	return client, nil
-}
-
-func (c *Client) ensureSchema() error {
-	if err := c.ensureAudioCollection(); err != nil {
-		return fmt.Errorf("failed to ensure audio collection: %w", err)
-	}
-
-	if err := c.ensureNotesCollection(); err != nil {
-		return fmt.Errorf("failed to ensure notes collection: %w", err)
-	}
-
-	return nil
-}
-
-func (c *Client) ensureAudioCollection() error {
-	collection, err := c.app.Dao().FindCollectionByNameOrId("audio")
+	// Authenticate with admin credentials
+	err := client.AuthenticateWithPassword(env.PocketBaseEmail, env.PocketBasePass)
 	if err != nil {
-		logger.Info("Creating audio collection")
-		collection = &models.Collection{
-			Name:       "audio",
-			Type:       models.CollectionTypeBase,
-			ListRule:   types.Pointer(""),
-			ViewRule:   types.Pointer(""),
-			CreateRule: types.Pointer(""),
-			UpdateRule: types.Pointer(""),
-			DeleteRule: types.Pointer(""),
-			Schema: schema.NewSchema(
-				&schema.SchemaField{
-					Name:     "data",
-					Type:     schema.FieldTypeText,
-					Required: true,
-				},
-				&schema.SchemaField{
-					Name:     "original_size",
-					Type:     schema.FieldTypeNumber,
-					Required: true,
-				},
-				&schema.SchemaField{
-					Name:     "compressed_size",
-					Type:     schema.FieldTypeNumber,
-					Required: true,
-				},
-			),
-		}
-
-		if err := c.app.Dao().SaveCollection(collection); err != nil {
-			return fmt.Errorf("failed to create audio collection: %w", err)
-		}
+		return nil, fmt.Errorf("failed to authenticate with PocketBase: %w", err)
 	}
-
-	return nil
+	
+	logger.Info("Successfully authenticated with PocketBase")
+	
+	return &Client{client: client}, nil
 }
 
-func (c *Client) ensureNotesCollection() error {
-	collection, err := c.app.Dao().FindCollectionByNameOrId("notes")
-	if err != nil {
-		logger.Info("Creating notes collection")
-		collection = &models.Collection{
-			Name:       "notes",
-			Type:       models.CollectionTypeBase,
-			ListRule:   types.Pointer(""),
-			ViewRule:   types.Pointer(""),
-			CreateRule: types.Pointer(""),
-			UpdateRule: types.Pointer(""),
-			DeleteRule: types.Pointer(""),
-			Schema: schema.NewSchema(
-				&schema.SchemaField{
-					Name:     "title",
-					Type:     schema.FieldTypeText,
-					Required: true,
-				},
-				&schema.SchemaField{
-					Name:     "content",
-					Type:     schema.FieldTypeText,
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "audio_id",
-					Type:     schema.FieldTypeText,
-					Required: true,
-				},
-			),
-		}
-
-		if err := c.app.Dao().SaveCollection(collection); err != nil {
-			return fmt.Errorf("failed to create notes collection: %w", err)
-		}
+func (c *Client) UpsertAudio(data string, originalSize, compressedSize int) (*AudioRecord, error) {
+	logger.Info("Creating audio record", "original_size", originalSize, "compressed_size", compressedSize)
+	
+	recordData := map[string]any{
+		"data":            data,
+		"original_size":   originalSize,
+		"compressed_size": compressedSize,
 	}
-
-	return nil
+	
+	response, err := c.client.Create("audio", recordData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create audio record: %w", err)
+	}
+	
+	var record AudioRecord
+	if err := response.Unmarshal(&record); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal audio record: %w", err)
+	}
+	
+	logger.Info("Audio record created successfully", "id", record.ID)
+	return &record, nil
 }
 
-func (c *Client) UpsertAudio(data string, originalSize, compressedSize int) (*models.Record, error) {
-	collection, err := c.app.Dao().FindCollectionByNameOrId("audio")
+func (c *Client) CreateNote(title, content, audioID string) (*NoteRecord, error) {
+	logger.Info("Creating note record", "title", title, "audio_id", audioID)
+	
+	recordData := map[string]any{
+		"title":    title,
+		"content":  content,
+		"audio_id": audioID,
+	}
+	
+	response, err := c.client.Create("notes", recordData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find audio collection: %w", err)
+		return nil, fmt.Errorf("failed to create note record: %w", err)
 	}
-
-	record := models.NewRecord(collection)
-	record.Set("data", data)
-	record.Set("original_size", originalSize)
-	record.Set("compressed_size", compressedSize)
-
-	if err := c.app.Dao().SaveRecord(record); err != nil {
-		return nil, fmt.Errorf("failed to save audio record: %w", err)
+	
+	var record NoteRecord
+	if err := response.Unmarshal(&record); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal note record: %w", err)
 	}
-
-	return record, nil
-}
-
-func (c *Client) CreateNote(title, content, audioId string) (*models.Record, error) {
-	collection, err := c.app.Dao().FindCollectionByNameOrId("notes")
-	if err != nil {
-		return nil, fmt.Errorf("failed to find notes collection: %w", err)
-	}
-
-	record := models.NewRecord(collection)
-	record.Set("title", title)
-	record.Set("content", content)
-	record.Set("audio_id", audioId)
-
-	if err := c.app.Dao().SaveRecord(record); err != nil {
-		return nil, fmt.Errorf("failed to save note record: %w", err)
-	}
-
-	return record, nil
+	
+	logger.Info("Note record created successfully", "id", record.ID)
+	return &record, nil
 }
 
 func (c *Client) Close() error {
-	return c.app.OnTerminate().Trigger(&core.TerminateEvent{
-		App: c.app,
-	})
+	// The pluja/pocketbase client doesn't require explicit closing
+	return nil
 }

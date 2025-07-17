@@ -161,21 +161,21 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	// Send transcription event
 	sendSSEEvent(w, "transcribing", map[string]interface{}{
 		"message": "Transcribing audio",
-		"audio_id": record.Id,
+		"audio_id": record.ID,
 		"timestamp": time.Now().Unix(),
 	})
 
 	// Use shared transcription function for WAV
-	logger.Info("Starting WAV transcription", "audio_id", record.Id)
+	logger.Info("Starting WAV transcription", "audio_id", record.ID)
 	result, err := transcription.TranscribeWAV(wavData, apiKey)
 	if err != nil {
-		logger.Error("Failed to transcribe WAV audio", "error", err, "audio_id", record.Id)
+		logger.Error("Failed to transcribe WAV audio", "error", err, "audio_id", record.ID)
 		sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
 		return
 	}
 
 	// Create a new note with the transcribed text and audio reference
-	noteRecord, err := db.CreateNote(result.Text, "", record.Id)
+	noteRecord, err := db.CreateNote(result.Text, "", record.ID)
 	if err != nil {
 		logger.Error("Failed to create note", "error", err)
 		sendSSEError(w, "Failed to create note")
@@ -183,10 +183,10 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	}
 
 	// Send completion event
-	logger.Info("Audio processing completed successfully", "note_id", noteRecord.Id, "audio_id", record.Id)
+	logger.Info("Audio processing completed successfully", "note_id", noteRecord.ID, "audio_id", record.ID)
 	sendSSEEvent(w, "complete", map[string]any{
-		"note_id": noteRecord.Id,
-		"audio_id": record.Id,
+		"note_id": noteRecord.ID,
+		"audio_id": record.ID,
 		"transcribed_text": result.Text,
 		"result": noteRecord,
 		"timestamp": time.Now().Unix(),
