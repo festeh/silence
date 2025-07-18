@@ -31,13 +31,8 @@ type NoteRecord struct {
 }
 
 func NewClient(env *env.Environment) (*Client, error) {
-	client := pocketbase.NewClient(env.PocketBaseURL)
-	
-	// Authenticate with admin credentials
-	err := client.AuthenticateWithPassword(env.PocketBaseEmail, env.PocketBasePass)
-	if err != nil {
-		return nil, fmt.Errorf("failed to authenticate with PocketBase: %w", err)
-	}
+	client := pocketbase.NewClient(env.PocketBaseURL, 
+		pocketbase.WithAdminEmailPassword(env.PocketBaseEmail, env.PocketBasePass))
 	
 	logger.Info("Successfully authenticated with PocketBase")
 	
@@ -58,9 +53,13 @@ func (c *Client) UpsertAudio(data string, originalSize, compressedSize int) (*Au
 		return nil, fmt.Errorf("failed to create audio record: %w", err)
 	}
 	
-	var record AudioRecord
-	if err := response.Unmarshal(&record); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal audio record: %w", err)
+	record := AudioRecord{
+		ID:             response.ID,
+		Data:           data,
+		OriginalSize:   originalSize,
+		CompressedSize: compressedSize,
+		Created:        response.Created,
+		Updated:        response.Updated,
 	}
 	
 	logger.Info("Audio record created successfully", "id", record.ID)
@@ -81,9 +80,13 @@ func (c *Client) CreateNote(title, content, audioID string) (*NoteRecord, error)
 		return nil, fmt.Errorf("failed to create note record: %w", err)
 	}
 	
-	var record NoteRecord
-	if err := response.Unmarshal(&record); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal note record: %w", err)
+	record := NoteRecord{
+		ID:      response.ID,
+		Title:   title,
+		Content: content,
+		AudioID: audioID,
+		Created: response.Created,
+		Updated: response.Updated,
 	}
 	
 	logger.Info("Note record created successfully", "id", record.ID)
