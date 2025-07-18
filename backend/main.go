@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"net/http"
 
 	"silence-backend/database"
@@ -11,6 +13,10 @@ import (
 
 func main() {
 	logger.Init()
+	
+	// Parse CLI arguments
+	port := flag.Int("port", 8888, "Port to run the server on")
+	flag.Parse()
 	
 	enviroment, err := env.NewEnvironment()
 	if err != nil {
@@ -49,8 +55,8 @@ func main() {
 		handlers.HandleSpeak(w, r, dbClient, enviroment)
 	})))
 
-	logger.Info("Starting HTTP server on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	logger.Info("Starting HTTP server on port", "port", *port)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), mux); err != nil {
 		logger.Error("Failed to start HTTP server", "error", err)
 		panic(err)
 	}
