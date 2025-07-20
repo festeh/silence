@@ -12,20 +12,10 @@ type Client struct {
 	client *pocketbase.Client
 }
 
-type AudioRecord struct {
-	ID             string `json:"id"`
-	Data           string `json:"data"`
-	OriginalSize   int    `json:"original_size"`
-	CompressedSize int    `json:"compressed_size"`
-	Created        string `json:"created"`
-	Updated        string `json:"updated"`
-}
-
-type NoteRecord struct {
+type Record struct {
 	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	AudioID string `json:"audio_id"`
+	Data    string `json:"data"`
+	Note    string `json:"note"`
 	Created string `json:"created"`
 	Updated string `json:"updated"`
 }
@@ -39,59 +29,31 @@ func NewClient(env *env.Environment) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
-func (c *Client) UpsertAudio(data string, originalSize, compressedSize int) (*AudioRecord, error) {
-	logger.Info("Creating audio record", "original_size", originalSize, "compressed_size", compressedSize)
+func (c *Client) CreateRecord(data, note string) (*Record, error) {
+	logger.Info("Creating record")
 	
 	recordData := map[string]any{
-		"data":            data,
-		"original_size":   originalSize,
-		"compressed_size": compressedSize,
+		"data": data,
+		"note": note,
 	}
 	
-	response, err := c.client.Create("audio", recordData)
+	response, err := c.client.Create("records", recordData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create audio record: %w", err)
+		return nil, fmt.Errorf("failed to create record: %w", err)
 	}
 	
-	record := AudioRecord{
-		ID:             response.ID,
-		Data:           data,
-		OriginalSize:   originalSize,
-		CompressedSize: compressedSize,
-		Created:        response.Created,
-		Updated:        response.Updated,
-	}
-	
-	logger.Info("Audio record created successfully", "id", record.ID)
-	return &record, nil
-}
-
-func (c *Client) CreateNote(title, content, audioID string) (*NoteRecord, error) {
-	logger.Info("Creating note record", "title", title, "audio_id", audioID)
-	
-	recordData := map[string]any{
-		"title":    title,
-		"content":  content,
-		"audio_id": audioID,
-	}
-	
-	response, err := c.client.Create("notes", recordData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create note record: %w", err)
-	}
-	
-	record := NoteRecord{
+	record := Record{
 		ID:      response.ID,
-		Title:   title,
-		Content: content,
-		AudioID: audioID,
+		Data:    data,
+		Note:    note,
 		Created: response.Created,
 		Updated: response.Updated,
 	}
 	
-	logger.Info("Note record created successfully", "id", record.ID)
+	logger.Info("Record created successfully", "id", record.ID)
 	return &record, nil
 }
+
 
 func (c *Client) Close() error {
 	// The pluja/pocketbase client doesn't require explicit closing
