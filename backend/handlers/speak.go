@@ -37,52 +37,8 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	contentType := r.Header.Get("Content-Type")
 
 	if contentType == "application/json" {
-		// Handle JSON request for PCM data
-		type AudioTranscriptionRequest struct {
-			PCMData []byte `json:"pcm_data"`
-		}
-
-		var req AudioTranscriptionRequest
-		err := json.NewDecoder(r.Body).Decode(&req)
-		if err != nil {
-			logger.Error("Failed to decode audio transcription request", "error", err)
-			sendSSEError(w, "Failed to decode audio transcription request")
-			return
-		}
-
-		if len(req.PCMData) == 0 {
-			logger.Error("PCM data is empty")
-			sendSSEError(w, "pcm_data is required")
-			return
-		}
-
-		// Send processing event
-		sendSSEEvent(w, "processing", map[string]interface{}{
-			"message": "Processing PCM audio data",
-			"timestamp": time.Now().Unix(),
-		})
-
-		// Use shared transcription function for PCM
-		logger.Info("Starting PCM transcription", "data_size", len(req.PCMData))
-		result, err := transcription.TranscribePCM(req.PCMData, apiKey)
-		if err != nil {
-			logger.Error("Failed to transcribe PCM audio", "error", err)
-			sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
-			return
-		}
-
-		// Send transcription complete event
-		sendSSEEvent(w, "transcribed", map[string]interface{}{
-			"text": result.Text,
-			"timestamp": time.Now().Unix(),
-		})
-
-		// Send completion event
-		sendSSEEvent(w, "complete", map[string]interface{}{
-			"result": result,
-			"timestamp": time.Now().Unix(),
-		})
-	return
+		handleJSONRequest(w, r, apiKey)
+		return
 	}
 
 	// Handle multipart form data (frontend)
@@ -206,6 +162,53 @@ func sendSSEError(w http.ResponseWriter, message string) {
 		"timestamp": time.Now().Unix(),
 	}
 	sendSSEEvent(w, "error", errorData)
+}
+
+type AudioTranscriptionRequest struct {
+	PCMData []byte `json:"pcm_data"`
+}
+
+func handleJSONRequest(w http.ResponseWriter, r *http.Request, apiKey string) {
+	var req AudioTranscriptionRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		logger.Error("Failed to decode audio transcription request", "error", err)
+		sendSSEError(w, "Failed to decode audio transcription request")
+		return
+	}
+
+	if len(req.PCMData) == 0 {
+		logger.Error("PCM data is empty")
+		sendSSEError(w, "pcm_data is required")
+		return
+	}
+
+	// Send processing event
+	sendSSEEvent(w, "processing", map[string]interface{}{
+		"message": "Processing PCM audio data",
+		"timestamp": time.Now().Unix(),
+	})
+
+	// Use shared transcription function for PCM
+	logger.Info("Starting PCM transcription", "data_size", len(req.PCMData))
+	result, err := transcription.TranscribePCM(req.PCMData, apiKey)
+	if err != nil {
+		logger.Error("Failed to transcribe PCM audio", "error", err)
+		sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
+		return
+	}
+
+	// Send transcription complete event
+	sendSSEEvent(w, "transcribed", map[string]interface{}{
+		"text": result.Text,
+		"timestamp": time.Now().Unix(),
+	})
+
+	// Send completion event
+	sendSSEEvent(w, "complete", map[string]interface{}{
+		"result": result,
+		"timestamp": time.Now().Unix(),
+	})
 }
 
 func flushSSE(w http.ResponseWriter) {
