@@ -106,45 +106,35 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 		"timestamp": time.Now().Unix(),
 	})
 
-	// Save base64 encoded audio to PocketBase
-	record, err := db.UpsertAudio(base64Data, len(wavData), len(compressedData))
-	if err != nil {
-		logger.Error("Failed to save audio to database", "error", err)
-		sendSSEError(w, "Failed to save audio to database")
-		return
-	}
-
 	// Send transcription event
 	sendSSEEvent(w, "transcribing", map[string]interface{}{
 		"message": "Transcribing audio",
-		"audio_id": record.ID,
 		"timestamp": time.Now().Unix(),
 	})
 
 	// Use shared transcription function for WAV
-	logger.Info("Starting WAV transcription", "audio_id", record.ID)
+	logger.Info("Starting WAV transcription")
 	result, err := transcription.TranscribeWAV(wavData, apiKey)
 	if err != nil {
-		logger.Error("Failed to transcribe WAV audio", "error", err, "audio_id", record.ID)
+		logger.Error("Failed to transcribe WAV audio", "error", err)
 		sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
 		return
 	}
 
-	// Create a new note with the transcribed text and audio reference
-	noteRecord, err := db.CreateNote(result.Text, "", record.ID)
+	// Save compressed audio and transcription to database
+	record, err := db.CreateRecord(base64Data, result.Text)
 	if err != nil {
-		logger.Error("Failed to create note", "error", err)
-		sendSSEError(w, "Failed to create note")
+		logger.Error("Failed to save record to database", "error", err)
+		sendSSEError(w, "Failed to save record to database")
 		return
 	}
 
 	// Send completion event
-	logger.Info("Audio processing completed successfully", "note_id", noteRecord.ID, "audio_id", record.ID)
+	logger.Info("Audio processing completed successfully", "record_id", record.ID)
 	sendSSEEvent(w, "complete", map[string]any{
-		"note_id": noteRecord.ID,
-		"audio_id": record.ID,
+		"record_id": record.ID,
 		"transcribed_text": result.Text,
-		"result": noteRecord,
+		"result": record,
 		"timestamp": time.Now().Unix(),
 	})
 }
