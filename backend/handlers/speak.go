@@ -17,7 +17,7 @@ import (
 
 func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, env *env.Environment) {
 	logger.Info("Starting audio processing request")
-	
+
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -26,12 +26,6 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 
 	// Get ElevenLabs API key from environment
 	apiKey := env.ElevenLabsAPIKey
-
-	// Send initial event
-	sendSSEEvent(w, "start", map[string]interface{}{
-		"message": "Starting audio processing",
-		"timestamp": time.Now().Unix(),
-	})
 
 	// Check if it's multipart form data (frontend) or JSON (CLI via backend)
 	contentType := r.Header.Get("Content-Type")
@@ -59,12 +53,6 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	}
 	defer file.Close()
 
-	// Send processing event
-	sendSSEEvent(w, "processing", map[string]interface{}{
-		"message": "Reading audio file",
-		"timestamp": time.Now().Unix(),
-	})
-
 	// Read the WAV file data
 	wavData, err := io.ReadAll(file)
 	if err != nil {
@@ -79,13 +67,6 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 		return
 	}
 
-	// Send compression event
-	sendSSEEvent(w, "compressing", map[string]interface{}{
-		"message": "Compressing audio data",
-		"original_size": len(wavData),
-		"timestamp": time.Now().Unix(),
-	})
-
 	// Compress the audio data
 	logger.Info("Compressing audio data", "original_size", len(wavData))
 	compressedData, err := compression.CompressAudio(wavData)
@@ -97,20 +78,6 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 
 	// Encode compressed audio to base64
 	base64Data := base64.StdEncoding.EncodeToString(compressedData)
-
-	// Send database save event
-	sendSSEEvent(w, "saving", map[string]interface{}{
-		"message": "Saving compressed audio to database",
-		"compressed_size": len(compressedData),
-		"base64_size": len(base64Data),
-		"timestamp": time.Now().Unix(),
-	})
-
-	// Send transcription event
-	sendSSEEvent(w, "transcribing", map[string]interface{}{
-		"message": "Transcribing audio",
-		"timestamp": time.Now().Unix(),
-	})
 
 	// Use shared transcription function for WAV
 	logger.Info("Starting WAV transcription")
@@ -132,10 +99,9 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	// Send completion event
 	logger.Info("Audio processing completed successfully", "record_id", record.ID)
 	sendSSEEvent(w, "complete", map[string]any{
-		"record_id": record.ID,
+		"record_id":        record.ID,
 		"transcribed_text": result.Text,
-		"result": record,
-		"timestamp": time.Now().Unix(),
+		"timestamp":        time.Now().Unix(),
 	})
 }
 
@@ -148,7 +114,7 @@ func sendSSEEvent(w http.ResponseWriter, event string, data any) {
 
 func sendSSEError(w http.ResponseWriter, message string) {
 	errorData := map[string]any{
-		"error": message,
+		"error":     message,
 		"timestamp": time.Now().Unix(),
 	}
 	sendSSEEvent(w, "error", errorData)
@@ -173,12 +139,6 @@ func handleJSONRequest(w http.ResponseWriter, r *http.Request, apiKey string) {
 		return
 	}
 
-	// Send processing event
-	sendSSEEvent(w, "processing", map[string]interface{}{
-		"message": "Processing PCM audio data",
-		"timestamp": time.Now().Unix(),
-	})
-
 	// Use shared transcription function for PCM
 	logger.Info("Starting PCM transcription", "data_size", len(req.PCMData))
 	result, err := transcription.TranscribePCM(req.PCMData, apiKey)
@@ -188,15 +148,9 @@ func handleJSONRequest(w http.ResponseWriter, r *http.Request, apiKey string) {
 		return
 	}
 
-	// Send transcription complete event
-	sendSSEEvent(w, "transcribed", map[string]interface{}{
-		"text": result.Text,
-		"timestamp": time.Now().Unix(),
-	})
-
 	// Send completion event
-	sendSSEEvent(w, "complete", map[string]interface{}{
-		"result": result,
+	sendSSEEvent(w, "complete", map[string]any{
+		"result":    result,
 		"timestamp": time.Now().Unix(),
 	})
 }
