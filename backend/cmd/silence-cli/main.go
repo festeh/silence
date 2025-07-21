@@ -66,6 +66,8 @@ func main() {
 func recordAudio() ([]byte, error) {
 	fmt.Println("Recording audio... Press any key to stop")
 	
+	// Channel to signal stop recording
+	stopChan := make(chan bool)
 	// Channel to receive PCM data
 	dataChan := make(chan []byte)
 	
@@ -94,9 +96,10 @@ func recordAudio() ([]byte, error) {
 			pcmData = append(pcmData, chunk...)
 			time.Sleep(100 * time.Millisecond)
 			
-			// Check if we should stop (non-blocking)
+			// Check if we should stop
 			select {
-			case dataChan <- pcmData:
+			case <-stopChan:
+				dataChan <- pcmData
 				return
 			default:
 				// Continue recording
@@ -108,8 +111,8 @@ func recordAudio() ([]byte, error) {
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
 		reader.ReadByte()
-		// Signal to stop recording by requesting data
-		<-dataChan
+		// Signal to stop recording
+		stopChan <- true
 	}()
 	
 	// Wait for the recording to finish
