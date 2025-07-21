@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -55,6 +56,14 @@ func main() {
 	}
 
 	fmt.Printf("Recorded %d bytes of PCM data\n", len(pcmData))
+	
+	// Save recording as WAV file for investigation
+	err = saveAsWAV(pcmData, "/tmp/record.wav")
+	if err != nil {
+		log.Printf("Failed to save WAV file: %v", err)
+	} else {
+		fmt.Println("Recording saved to /tmp/record.wav")
+	}
 	
 	// Test HandleSpeak function directly
 	err = testHandleSpeak(pcmData, db, environment)
@@ -120,6 +129,45 @@ func recordAudio() ([]byte, error) {
 	fmt.Printf("Recording stopped. Captured %d bytes\n", len(pcmData))
 	
 	return pcmData, nil
+}
+
+func saveAsWAV(pcmData []byte, filename string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	
+	// WAV file parameters
+	sampleRate := uint32(16000)
+	bitsPerSample := uint16(16)
+	channels := uint16(1)
+	
+	dataSize := uint32(len(pcmData))
+	fileSize := 36 + dataSize
+	
+	// Write WAV header
+	// RIFF header
+	file.Write([]byte("RIFF"))
+	binary.Write(file, binary.LittleEndian, fileSize)
+	file.Write([]byte("WAVE"))
+	
+	// fmt chunk
+	file.Write([]byte("fmt "))
+	binary.Write(file, binary.LittleEndian, uint32(16)) // chunk size
+	binary.Write(file, binary.LittleEndian, uint16(1))  // audio format (PCM)
+	binary.Write(file, binary.LittleEndian, channels)
+	binary.Write(file, binary.LittleEndian, sampleRate)
+	binary.Write(file, binary.LittleEndian, sampleRate*uint32(channels)*uint32(bitsPerSample)/8) // byte rate
+	binary.Write(file, binary.LittleEndian, channels*bitsPerSample/8) // block align
+	binary.Write(file, binary.LittleEndian, bitsPerSample)
+	
+	// data chunk
+	file.Write([]byte("data"))
+	binary.Write(file, binary.LittleEndian, dataSize)
+	file.Write(pcmData)
+	
+	return nil
 }
 
 func testHandleSpeak(pcmData []byte, db *database.Client, env *env.Environment) error {
