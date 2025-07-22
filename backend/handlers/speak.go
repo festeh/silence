@@ -8,48 +8,41 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"silence-backend/compression"
-	"silence-backend/database"
-	"silence-backend/env"
 	"silence-backend/logger"
 	"silence-backend/transcription"
 )
 
-func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, env *env.Environment) {
+func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) error {
 	logger.Info("Starting audio processing request")
 
 	// Set SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	// Get ElevenLabs API key from environment
-	apiKey := env.ElevenLabsAPIKey
+	re.Response.Header().Set("Content-Type", "text/event-stream")
+	re.Response.Header().Set("Cache-Control", "no-cache")
+	re.Response.Header().Set("Connection", "keep-alive")
+	re.Response.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// Check if it's multipart form data (frontend) or JSON (CLI via backend)
-	contentType := r.Header.Get("Content-Type")
+	contentType := re.Request.Header.Get("Content-Type")
 
 	if contentType == "application/json" {
-		handleJSONRequest(w, r, apiKey)
-		return
+		return handleJSONRequest(re, elevenlabsAPIKey)
 	}
 
 	// Handle multipart form data (frontend)
 	logger.Info("Processing multipart form data")
-	err := r.ParseMultipartForm(32 << 20) // 32MB max
+	err := re.Request.ParseMultipartForm(32 << 20) // 32MB max
 	if err != nil {
 		logger.Error("Failed to parse multipart form", "error", err)
-		sendSSEError(w, "Invalid multipart form")
-		return
+		return sendSSEError(re, "Invalid multipart form")
 	}
 
 	// Get the audio file from the form
-	file, _, err := r.FormFile("audio")
+	file, _, err := re.Request.FormFile("audio")
 	if err != nil {
 		logger.Error("Failed to get audio file from form", "error", err)
-		sendSSEError(w, "audio file is required")
-		return
+		return sendSSEError(re, "audio file is required")
 	}
 	defer file.Close()
 
@@ -57,14 +50,12 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	wavData, err := io.ReadAll(file)
 	if err != nil {
 		logger.Error("Failed to read audio file", "error", err)
-		sendSSEError(w, "Failed to read audio file")
-		return
+		return sendSSEError(re, "Failed to read audio file")
 	}
 
 	if len(wavData) == 0 {
 		logger.Error("Audio file is empty")
-		sendSSEError(w, "audio file is empty")
-		return
+		return sendSSEError(re, "audio file is empty")
 	}
 
 	// Compress the audio data
@@ -72,8 +63,7 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 	compressedData, err := compression.CompressAudio(wavData)
 	if err != nil {
 		logger.Error("Failed to compress audio", "error", err)
-		sendSSEError(w, fmt.Sprintf("Failed to compress audio: %v", err))
-		return
+		return sendSSEError(re, fmt.Sprintf("Failed to compress audio: %v", err))
 	}
 
 	// Encode compressed audio to base64
@@ -81,62 +71,68 @@ func HandleSpeak(w http.ResponseWriter, r *http.Request, db *database.Client, en
 
 	// Use shared transcription function for WAV
 	logger.Info("Starting WAV transcription")
-	result, err := transcription.TranscribeWAV(wavData, apiKey)
+	result, err := transcription.TranscribeWAV(wavData, elevenlabsAPIKey)
 	if err != nil {
 		logger.Error("Failed to transcribe WAV audio", "error", err)
-		sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
-		return
+		return sendSSEError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
 	}
 
-	// Save compressed audio and transcription to database
-	record, err := db.CreateRecord(base64Data, result.Text)
+	// Save compressed audio and transcription to database using PocketBase
+	collection, err := app.FindCollectionByNameOrId("silence")
 	if err != nil {
+		logger.Error("Failed to find silence collection", "error", err)
+		return sendSSEError(re, "Database collection not found")
+	}
+
+	record := core.NewRecord(collection)
+	record.Set("data", base64Data)
+	record.Set("note", result.Text)
+
+	if err := app.Save(record); err != nil {
 		logger.Error("Failed to save record to database", "error", err)
-		sendSSEError(w, "Failed to save record to database")
-		return
+		return sendSSEError(re, "Failed to save record to database")
 	}
 
 	// Send completion event
-	logger.Info("Audio processing completed successfully", "record_id", record.ID)
-	sendSSEEvent(w, "complete", map[string]any{
-		"record_id":        record.ID,
+	logger.Info("Audio processing completed successfully", "record_id", record.Id)
+	return sendSSEEvent(re, "complete", map[string]any{
+		"record_id":        record.Id,
 		"transcribed_text": result.Text,
 		"timestamp":        time.Now().Unix(),
 	})
 }
 
-func sendSSEEvent(w http.ResponseWriter, event string, data any) {
+func sendSSEEvent(re *core.RequestEvent, event string, data any) error {
 	jsonData, _ := json.Marshal(data)
-	fmt.Fprintf(w, "event: %s\n", event)
-	fmt.Fprintf(w, "data: %s\n\n", jsonData)
-	flushSSE(w)
+	fmt.Fprintf(re.Response, "event: %s\n", event)
+	fmt.Fprintf(re.Response, "data: %s\n\n", jsonData)
+	flushSSE(re.Response)
+	return nil
 }
 
-func sendSSEError(w http.ResponseWriter, message string) {
+func sendSSEError(re *core.RequestEvent, message string) error {
 	errorData := map[string]any{
 		"error":     message,
 		"timestamp": time.Now().Unix(),
 	}
-	sendSSEEvent(w, "error", errorData)
+	return sendSSEEvent(re, "error", errorData)
 }
 
 type AudioTranscriptionRequest struct {
 	PCMData []byte `json:"pcm_data"`
 }
 
-func handleJSONRequest(w http.ResponseWriter, r *http.Request, apiKey string) {
+func handleJSONRequest(re *core.RequestEvent, apiKey string) error {
 	var req AudioTranscriptionRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(re.Request.Body).Decode(&req)
 	if err != nil {
 		logger.Error("Failed to decode audio transcription request", "error", err)
-		sendSSEError(w, "Failed to decode audio transcription request")
-		return
+		return sendSSEError(re, "Failed to decode audio transcription request")
 	}
 
 	if len(req.PCMData) == 0 {
 		logger.Error("PCM data is empty")
-		sendSSEError(w, "pcm_data is required")
-		return
+		return sendSSEError(re, "pcm_data is required")
 	}
 
 	// Use shared transcription function for PCM
@@ -144,12 +140,11 @@ func handleJSONRequest(w http.ResponseWriter, r *http.Request, apiKey string) {
 	result, err := transcription.TranscribePCM(req.PCMData, apiKey)
 	if err != nil {
 		logger.Error("Failed to transcribe PCM audio", "error", err)
-		sendSSEError(w, fmt.Sprintf("Failed to transcribe audio: %v", err))
-		return
+		return sendSSEError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
 	}
 
 	// Send completion event
-	sendSSEEvent(w, "complete", map[string]any{
+	return sendSSEEvent(re, "complete", map[string]any{
 		"result":    result,
 		"timestamp": time.Now().Unix(),
 	})

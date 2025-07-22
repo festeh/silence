@@ -1,63 +1,52 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	"net/http"
-
-	"silence-backend/database"
-	"silence-backend/env"
+	"log"
+	"os"
 	"silence-backend/handlers"
 	"silence-backend/logger"
+	
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 func main() {
 	logger.Init()
 	
-	// Parse CLI arguments
-	port := flag.Int("port", 8888, "Port to run the server on")
-	flag.Parse()
-	
-	enviroment, err := env.NewEnvironment()
-	if err != nil {
-		logger.Error("Failed to initialize environment", "error", err)
-		panic(err)
+	// Get ElevenLabs API key from environment
+	elevenlabsAPIKey := os.Getenv("ELEVENLABS_API_KEY")
+	if elevenlabsAPIKey == "" {
+		log.Fatal("ELEVENLABS_API_KEY environment variable is required")
 	}
-
-	logger.Info("Initializing database client")
-	dbClient, err := database.NewClient(enviroment)
-	if err != nil {
-		logger.Error("Failed to initialize database client", "error", err)
-		panic(err)
-	}
-	defer dbClient.Close()
-
-	logger.Info("Setting up HTTP routes")
-	mux := http.NewServeMux()
 	
-	// Add CORS middleware
-	corsHandler := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	app := pocketbase.New()
+
+	// Add custom routes
+	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		// Custom /speak endpoint with CORS
+		se.Router.POST("/speak", func(re *core.RequestEvent) error {
+			// Set CORS headers
+			re.Response.Header().Set("Access-Control-Allow-Origin", "*")
+			re.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			
-			next.ServeHTTP(w, r)
+			// Handle the speak logic
+			return handlers.HandleSpeak(re, app, elevenlabsAPIKey)
 		})
-	}
-	
-	mux.Handle("/speak", corsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlers.HandleSpeak(w, r, dbClient, enviroment)
-	})))
+		
+		// Handle CORS preflight
+		se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {
+			re.Response.Header().Set("Access-Control-Allow-Origin", "*")
+			re.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			return re.NoContent(200)
+		})
 
-	logger.Info("Starting HTTP server on port", "port", *port)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), mux); err != nil {
-		logger.Error("Failed to start HTTP server", "error", err)
-		panic(err)
+		return se.Next()
+	})
+
+	logger.Info("Starting PocketBase application")
+	if err := app.Start(); err != nil {
+		log.Fatal(err)
 	}
 }
