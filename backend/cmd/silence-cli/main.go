@@ -3,14 +3,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -75,60 +77,72 @@ func main() {
 func recordAudio() ([]byte, error) {
 	fmt.Println("Recording audio... Press any key to stop")
 	
-	// Channel to signal stop recording
-	stopChan := make(chan bool)
+	// Create a context that we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
 	// Channel to receive PCM data
 	dataChan := make(chan []byte)
+	errChan := make(chan error)
 	
-	// Start recording in a goroutine
+	// Start recording with ffmpeg in a goroutine
 	go func() {
-		// Generate dummy 16-bit PCM data continuously
-		sampleRate := 16000
-		samplesPerSecond := sampleRate
-		pcmData := make([]byte, 0)
+		// ffmpeg command to record from default microphone
+		// Output: 16-bit PCM, 16kHz, mono, raw format
+		cmd := exec.CommandContext(ctx, "ffmpeg",
+			"-f", "pulse", // Use PulseAudio (Linux default)
+			"-i", "default", // Default microphone
+			"-ar", "16000", // Sample rate 16kHz
+			"-ac", "1", // Mono channel
+			"-f", "s16le", // 16-bit little endian PCM
+			"-", // Output to stdout
+		)
 		
-		start := time.Now()
-		for {
-			// Generate 100ms worth of samples at a time
-			chunkSamples := samplesPerSecond / 10
-			chunk := make([]byte, chunkSamples*2) // 16-bit = 2 bytes per sample
-			
-			for i := 0; i < chunkSamples; i++ {
-				// Simple sine wave at 440Hz
-				elapsed := time.Since(start).Seconds()
-				sampleIndex := elapsed*float64(sampleRate) + float64(i)
-				value := int16(32767 * 0.1 * math.Sin(2*math.Pi*440*sampleIndex/float64(sampleRate)))
-				chunk[i*2] = byte(value & 0xFF)
-				chunk[i*2+1] = byte((value >> 8) & 0xFF)
-			}
-			
-			pcmData = append(pcmData, chunk...)
-			time.Sleep(100 * time.Millisecond)
-			
-			// Check if we should stop
-			select {
-			case <-stopChan:
-				dataChan <- pcmData
-				return
-			default:
-				// Continue recording
-			}
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			errChan <- fmt.Errorf("failed to create stdout pipe: %w", err)
+			return
 		}
+		
+		// Start the command
+		if err := cmd.Start(); err != nil {
+			errChan <- fmt.Errorf("failed to start ffmpeg: %w", err)
+			return
+		}
+		
+		// Read all PCM data from stdout
+		pcmData, err := io.ReadAll(stdout)
+		if err != nil && ctx.Err() == nil {
+			// Only report error if context wasn't cancelled
+			errChan <- fmt.Errorf("failed to read PCM data: %w", err)
+			return
+		}
+		
+		// Wait for command to finish
+		cmd.Wait()
+		
+		dataChan <- pcmData
 	}()
 	
 	// Wait for any key press
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
 		reader.ReadByte()
-		// Signal to stop recording
-		stopChan <- true
+		// Cancel the context to stop ffmpeg
+		cancel()
 	}()
 	
-	// Wait for the recording to finish
-	pcmData := <-dataChan
-	fmt.Printf("Recording stopped. Captured %d bytes\n", len(pcmData))
-	
-	return pcmData, nil
+	// Wait for either the recording to finish or an error
+	select {
+	case pcmData := <-dataChan:
+		fmt.Printf("Recording stopped. Captured %d bytes\n", len(pcmData))
+		return pcmData, nil
+	case err := <-errChan:
+		return nil, err
+	case <-time.After(30 * time.Second):
+		cancel()
+		return nil, fmt.Errorf("recording timeout after 30 seconds")
+	}
 }
 
 func saveAsWAV(pcmData []byte, filename string) error {
