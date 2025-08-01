@@ -61,13 +61,13 @@ func main() {
 	
 	app := pocketbase.New()
 
-	// Check and create superuser if needed
-	app.OnBootstrap().BindFunc(func(be *core.BootstrapEvent) error {
-		return ensureSuperuser(be.App, silenceEmail, silencePassword)
-	})
-
 	// Add custom routes
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		// Check and create superuser if needed (after bootstrap is complete)
+		if err := ensureSuperuser(se.App, silenceEmail, silencePassword); err != nil {
+			logger.Error("Failed to ensure superuser", "error", err)
+			return err
+		}
 		addr := se.Server.Addr
 		if strings.Contains(addr, ":") {
 			parts := strings.Split(addr, ":")
