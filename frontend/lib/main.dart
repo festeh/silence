@@ -39,7 +39,7 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
   bool _isProcessing = false;
   String? _recordedFilePath;
   List<String> _sseEvents = [];
-  final String _backendUrl = 'http://localhost:8090';
+  final String _backendUrl = const String.fromEnvironment('BACKEND_URL', defaultValue: 'http://localhost:8090');
 
   @override
   void initState() {
