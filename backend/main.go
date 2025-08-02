@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"silence-backend/auth"
+	"silence-backend/database"
 	"silence-backend/env"
 	"silence-backend/logger"
 	"silence-backend/routes"
@@ -32,6 +33,11 @@ func main() {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		if err := auth.EnsureSuperuser(se.App, envVars.SilenceEmail, envVars.SilencePassword); err != nil {
 			logger.Error("Failed to ensure superuser", "error", err)
+			return err
+		}
+
+		if err := database.EnsureSilenceCollection(se.App); err != nil {
+			logger.Error("Failed to ensure silence collection", "error", err)
 			return err
 		}
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
@@ -54,6 +56,9 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
   }
 
   Future<void> _requestPermissions() async {
+    if (!kIsWeb && Platform.isLinux) {
+      return;
+    }
     await Permission.microphone.request();
   }
 
@@ -100,7 +105,6 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
     });
 
     try {
-      final file = File(filePath);
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$_backendUrl/speak'),
@@ -234,15 +238,60 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
                       child: ListView.builder(
                         itemCount: _sseEvents.length,
                         itemBuilder: (context, index) {
-                          return ListTile(
-                            dense: true,
-                            leading: Text(
-                              '${index + 1}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            title: Text(
-                              _sseEvents[index],
-                              style: const TextStyle(fontFamily: 'monospace'),
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 40,
+                                  child: SelectableText(
+                                    '${index + 1}',
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: SelectableText(
+                                    _sseEvents[index],
+                                    style: const TextStyle(fontFamily: 'monospace'),
+                                    contextMenuBuilder: (context, editableTextState) {
+                                      return AdaptiveTextSelectionToolbar.buttonItems(
+                                        anchors: editableTextState.contextMenuAnchors,
+                                        buttonItems: [
+                                          ContextMenuButtonItem(
+                                            label: 'Copy',
+                                            onPressed: () {
+                                              final selectedText = editableTextState.textEditingValue.selection.textInside(editableTextState.textEditingValue.text);
+                                              if (selectedText.isNotEmpty) {
+                                                Clipboard.setData(ClipboardData(text: selectedText));
+                                              }
+                                              ContextMenuController.removeAny();
+                                            },
+                                          ),
+                                          ContextMenuButtonItem(
+                                            label: 'Copy All',
+                                            onPressed: () {
+                                              Clipboard.setData(ClipboardData(text: _sseEvents[index]));
+                                              ContextMenuController.removeAny();
+                                            },
+                                          ),
+                                          ContextMenuButtonItem(
+                                            label: 'Copy All Events',
+                                            onPressed: () {
+                                              final allEvents = _sseEvents.asMap().entries
+                                                  .map((entry) => '${entry.key + 1}: ${entry.value}')
+                                                  .join('\n');
+                                              Clipboard.setData(ClipboardData(text: allEvents));
+                                              ContextMenuController.removeAny();
+                                            },
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         },
