@@ -46,56 +46,62 @@ func ensureSuperuser(app core.App, email, password string) error {
 	return nil
 }
 
-func main() {
-	logger.Init()
-	
-	// Get ElevenLabs API key from environment
+func validateEnvironment() (string, string, string) {
 	elevenlabsAPIKey := os.Getenv("ELEVENLABS_API_KEY")
 	if elevenlabsAPIKey == "" {
 		log.Fatal("ELEVENLABS_API_KEY environment variable is required")
 	}
 	
-	// Get superuser credentials from environment
 	silenceEmail := os.Getenv("SILENCE_EMAIL")
 	silencePassword := os.Getenv("SILENCE_PASSWORD")
 	
+	return elevenlabsAPIKey, silenceEmail, silencePassword
+}
+
+func setCORSHeaders(re *core.RequestEvent) {
+	re.Response.Header().Set("Access-Control-Allow-Origin", "*")
+	re.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+func logServerStart(addr string) {
+	if strings.Contains(addr, ":") {
+		parts := strings.Split(addr, ":")
+		port := parts[len(parts)-1]
+		logger.Info("Server started successfully", "port", port, "address", addr)
+	} else {
+		logger.Info("Server started successfully", "address", addr)
+	}
+}
+
+func setupRoutes(se *core.ServeEvent, app core.App, elevenlabsAPIKey string) {
+	se.Router.POST("/speak", func(re *core.RequestEvent) error {
+		setCORSHeaders(re)
+		return handlers.HandleSpeak(re, app, elevenlabsAPIKey)
+	})
+	
+	se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {
+		setCORSHeaders(re)
+		return re.NoContent(200)
+	})
+}
+
+func main() {
+	logger.Init()
+	
+	elevenlabsAPIKey, silenceEmail, silencePassword := validateEnvironment()
+	
 	app := pocketbase.New()
 
-	// Add custom routes
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// Check and create superuser if needed (after bootstrap is complete)
 		if err := ensureSuperuser(se.App, silenceEmail, silencePassword); err != nil {
 			logger.Error("Failed to ensure superuser", "error", err)
 			return err
 		}
-		addr := se.Server.Addr
-		if strings.Contains(addr, ":") {
-			parts := strings.Split(addr, ":")
-			port := parts[len(parts)-1]
-			logger.Info("Server started successfully", "port", port, "address", addr)
-		} else {
-			logger.Info("Server started successfully", "address", addr)
-		}
 		
-		// Custom /speak endpoint with CORS
-		se.Router.POST("/speak", func(re *core.RequestEvent) error {
-			// Set CORS headers
-			re.Response.Header().Set("Access-Control-Allow-Origin", "*")
-			re.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			
-			// Handle the speak logic
-			return handlers.HandleSpeak(re, app, elevenlabsAPIKey)
-		})
+		logServerStart(se.Server.Addr)
+		setupRoutes(se, app, elevenlabsAPIKey)
 		
-		// Handle CORS preflight
-		se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {
-			re.Response.Header().Set("Access-Control-Allow-Origin", "*")
-			re.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			return re.NoContent(200)
-		})
-
 		return se.Next()
 	})
 
