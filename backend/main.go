@@ -41,7 +41,7 @@ func main() {
 		return se.Next()
 	})
 
-	logger.Info("Starting PocketBase application")
+	logger.Info("Silence!")
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
