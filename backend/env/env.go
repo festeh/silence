@@ -16,10 +16,10 @@ func Load() *Env {
 	if elevenlabsAPIKey == "" {
 		log.Fatal("ELEVENLABS_API_KEY environment variable is required")
 	}
-	
+
 	silenceEmail := os.Getenv("SILENCE_EMAIL")
 	silencePassword := os.Getenv("SILENCE_PASSWORD")
-	
+
 	return &Env{
 		ElevenlabsAPIKey: elevenlabsAPIKey,
 		SilenceEmail:     silenceEmail,

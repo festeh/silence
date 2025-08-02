@@ -1,56 +1,16 @@
 package main
 
 import (
+	"log"
+	"silence-backend/auth"
 	"silence-backend/env"
-	"silence-backend/handlers"
 	"silence-backend/logger"
+	"silence-backend/routes"
 	"strings"
-	
+
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
-
-func ensureSuperuser(app core.App, email, password string) error {
-	if email == "" || password == "" {
-		logger.Info("SILENCE_EMAIL or SILENCE_PASSWORD not provided, skipping superuser creation")
-		return nil
-	}
-
-	// Check if admin with this email already exists
-	record, err := app.FindAuthRecordByEmail(core.CollectionNameSuperusers, email)
-	if err == nil && record != nil {
-		logger.Info("Superuser already exists", "email", email)
-		return nil
-	}
-
-	// Get the superusers collection
-	superusers, err := app.FindCollectionByNameOrId(core.CollectionNameSuperusers)
-	if err != nil {
-		logger.Error("Failed to find superusers collection", "error", err)
-		return err
-	}
-
-	// Create new superuser record
-	record = core.NewRecord(superusers)
-	record.Set("email", email)
-	record.Set("password", password)
-
-	// Save the record
-	if err := app.Save(record); err != nil {
-		logger.Error("Failed to create superuser", "email", email, "error", err)
-		return err
-	}
-
-	logger.Info("Superuser created successfully", "email", email)
-	return nil
-}
-
-
-func setCORSHeaders(re *core.RequestEvent) {
-	re.Response.Header().Set("Access-Control-Allow-Origin", "*")
-	re.Response.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-}
 
 func logServerStart(addr string) {
 	if strings.Contains(addr, ":") {
@@ -62,34 +22,22 @@ func logServerStart(addr string) {
 	}
 }
 
-func setupRoutes(se *core.ServeEvent, app core.App, elevenlabsAPIKey string) {
-	se.Router.POST("/speak", func(re *core.RequestEvent) error {
-		setCORSHeaders(re)
-		return handlers.HandleSpeak(re, app, elevenlabsAPIKey)
-	})
-	
-	se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {
-		setCORSHeaders(re)
-		return re.NoContent(200)
-	})
-}
-
 func main() {
 	logger.Init()
-	
+
 	envVars := env.Load()
-	
+
 	app := pocketbase.New()
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		if err := ensureSuperuser(se.App, envVars.SilenceEmail, envVars.SilencePassword); err != nil {
+		if err := auth.EnsureSuperuser(se.App, envVars.SilenceEmail, envVars.SilencePassword); err != nil {
 			logger.Error("Failed to ensure superuser", "error", err)
 			return err
 		}
-		
+
 		logServerStart(se.Server.Addr)
-		setupRoutes(se, app, envVars.ElevenlabsAPIKey)
-		
+		routes.Setup(se, app, envVars.ElevenlabsAPIKey)
+
 		return se.Next()
 	})
 
