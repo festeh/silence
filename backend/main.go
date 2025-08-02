@@ -1,8 +1,7 @@
 package main
 
 import (
-	"log"
-	"os"
+	"silence-backend/env"
 	"silence-backend/handlers"
 	"silence-backend/logger"
 	"strings"
@@ -46,17 +45,6 @@ func ensureSuperuser(app core.App, email, password string) error {
 	return nil
 }
 
-func validateEnvironment() (string, string, string) {
-	elevenlabsAPIKey := os.Getenv("ELEVENLABS_API_KEY")
-	if elevenlabsAPIKey == "" {
-		log.Fatal("ELEVENLABS_API_KEY environment variable is required")
-	}
-	
-	silenceEmail := os.Getenv("SILENCE_EMAIL")
-	silencePassword := os.Getenv("SILENCE_PASSWORD")
-	
-	return elevenlabsAPIKey, silenceEmail, silencePassword
-}
 
 func setCORSHeaders(re *core.RequestEvent) {
 	re.Response.Header().Set("Access-Control-Allow-Origin", "*")
@@ -89,18 +77,18 @@ func setupRoutes(se *core.ServeEvent, app core.App, elevenlabsAPIKey string) {
 func main() {
 	logger.Init()
 	
-	elevenlabsAPIKey, silenceEmail, silencePassword := validateEnvironment()
+	envVars := env.Load()
 	
 	app := pocketbase.New()
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		if err := ensureSuperuser(se.App, silenceEmail, silencePassword); err != nil {
+		if err := ensureSuperuser(se.App, envVars.SilenceEmail, envVars.SilencePassword); err != nil {
 			logger.Error("Failed to ensure superuser", "error", err)
 			return err
 		}
 		
 		logServerStart(se.Server.Addr)
-		setupRoutes(se, app, elevenlabsAPIKey)
+		setupRoutes(se, app, envVars.ElevenlabsAPIKey)
 		
 		return se.Next()
 	})
