@@ -31,6 +31,7 @@ jobs:
       uses: appleboy/ssh-action@v1.1.0
       with:
         host: ${{ secrets.HOST }}
+        username: root
         key: ${{ secrets.SSH_KEY }}
         script: |
           # Stop the service if running
@@ -46,6 +47,7 @@ jobs:
       uses: appleboy/scp-action@v0.1.7
       with:
         host: ${{ secrets.HOST }}
+        username: root
         key: ${{ secrets.SSH_KEY }}
         source: "backend/silence-backend"
         target: "/root/silence/"
@@ -55,6 +57,7 @@ jobs:
       uses: appleboy/ssh-action@v1.1.0
       with:
         host: ${{ secrets.HOST }}
+        username: root
         key: ${{ secrets.SSH_KEY }}
         script: |
           # Make binary executable
