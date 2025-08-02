@@ -19,20 +19,20 @@ func EnsureSilenceCollection(app core.App) error {
 	
 	// Add data field for storing base64 compressed audio
 	dataField := &core.TextField{
-		Name:     "data",
+		Name:     "audio",
 		Required: true,
 		Max:      1000000, // 1MB limit for base64 data
 	}
 	
 	// Add note field for storing transcribed text
-	noteField := &core.TextField{
-		Name:     "note",
+	resultField := &core.TextField{
+		Name:     "result",
 		Required: false,
 		Max:      10000, // 10k characters limit
 	}
 	
 	collection.Fields.Add(dataField)
-	collection.Fields.Add(noteField)
+	collection.Fields.Add(resultField)
 
 	// Save the collection
 	if err := app.Save(collection); err != nil {

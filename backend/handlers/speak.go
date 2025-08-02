@@ -85,8 +85,8 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 	}
 
 	record := core.NewRecord(collection)
-	record.Set("data", base64Data)
-	record.Set("note", result.Text)
+	record.Set("audio", base64Data)
+	record.Set("result", result.Text)
 
 	if err := app.Save(record); err != nil {
 		logger.Error("Failed to save record to database", "error", err)
