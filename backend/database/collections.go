@@ -43,3 +43,35 @@ func EnsureSilenceCollection(app core.App) error {
 	logger.Info("Silence collection created successfully")
 	return nil
 }
+
+func EnsureAppsCollection(app core.App) error {
+	_, err := app.FindCollectionByNameOrId("apps")
+	if err == nil {
+		logger.Info("Apps collection already exists")
+		return nil
+	}
+
+	collection := core.NewBaseCollection("apps")
+	
+	nameField := &core.TextField{
+		Name:     "name",
+		Required: true,
+		Max:      255,
+	}
+	
+	descriptionField := &core.JSONField{
+		Name:     "description",
+		Required: false,
+	}
+	
+	collection.Fields.Add(nameField)
+	collection.Fields.Add(descriptionField)
+
+	if err := app.Save(collection); err != nil {
+		logger.Error("Failed to create apps collection", "error", err)
+		return err
+	}
+
+	logger.Info("Apps collection created successfully")
+	return nil
+}

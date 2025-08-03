@@ -41,6 +41,11 @@ func main() {
 			return err
 		}
 
+		if err := database.EnsureAppsCollection(se.App); err != nil {
+			logger.Error("Failed to ensure apps collection", "error", err)
+			return err
+		}
+
 		logServerStart(se.Server.Addr)
 		routes.Setup(se, app, envVars.ElevenlabsAPIKey, envVars.OpenRouterAPIKey)
 
