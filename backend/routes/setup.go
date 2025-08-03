@@ -12,13 +12,23 @@ func SetCORSHeaders(re *core.RequestEvent) {
 	re.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
 
-func Setup(se *core.ServeEvent, app core.App, elevenlabsAPIKey string) {
+func Setup(se *core.ServeEvent, app core.App, elevenlabsAPIKey string, openRouterAPIKey string) {
 	se.Router.POST("/speak", func(re *core.RequestEvent) error {
 		SetCORSHeaders(re)
 		return handlers.HandleSpeak(re, app, elevenlabsAPIKey)
 	})
 
 	se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {
+		SetCORSHeaders(re)
+		return re.NoContent(200)
+	})
+
+	se.Router.POST("/ai", func(re *core.RequestEvent) error {
+		SetCORSHeaders(re)
+		return handlers.HandleAI(re, openRouterAPIKey)
+	})
+
+	se.Router.OPTIONS("/ai", func(re *core.RequestEvent) error {
 		SetCORSHeaders(re)
 		return re.NoContent(200)
 	})
