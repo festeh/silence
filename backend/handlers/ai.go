@@ -10,19 +10,10 @@ import (
 	"silence-backend/logger"
 )
 
-type MessageRequest struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type AIRequest struct {
-	Messages []MessageRequest `json:"messages"`
-	Model    string           `json:"model,omitempty"`
-}
 
 type AIResponse struct {
-	Content string `json:"content"`
-	Error   string `json:"error,omitempty"`
+	Message openrouter.ChatCompletionMessage `json:"message"`
+	Error   string                            `json:"error,omitempty"`
 }
 
 func HandleAI(re *core.RequestEvent, openRouterAPIKey string) error {
@@ -30,48 +21,29 @@ func HandleAI(re *core.RequestEvent, openRouterAPIKey string) error {
 		return re.String(http.StatusMethodNotAllowed, "Method not allowed")
 	}
 
-	var req AIRequest
-	if err := json.NewDecoder(re.Request.Body).Decode(&req); err != nil {
+	var chatReq openrouter.ChatCompletionRequest
+	if err := json.NewDecoder(re.Request.Body).Decode(&chatReq); err != nil {
 		logger.Error("Failed to decode AI request", "error", err)
 		return re.JSON(http.StatusBadRequest, AIResponse{
 			Error: "Invalid JSON request",
 		})
 	}
 
-	if len(req.Messages) == 0 {
+	if len(chatReq.Messages) == 0 {
 		return re.JSON(http.StatusBadRequest, AIResponse{
 			Error: "Messages are required",
 		})
 	}
 
-	model := req.Model
-	if model == "" {
-		model = "meta-llama/llama-3.3-70b-instruct"
+	if chatReq.Model == "" {
+		chatReq.Model = "meta-llama/llama-3.3-70b-instruct"
 	}
 
-	logger.Info("Processing AI request", "model", model, "message_count", len(req.Messages))
+	logger.Info("Processing AI request", "model", chatReq.Model, "message_count", len(chatReq.Messages), "tools_count", len(chatReq.Tools))
 
 	client := openrouter.NewClient(openRouterAPIKey)
 
-	// Convert request messages to OpenRouter format
-	var messages []openrouter.ChatCompletionMessage
-	for _, msg := range req.Messages {
-		switch msg.Role {
-		case "system":
-			messages = append(messages, openrouter.SystemMessage(msg.Content))
-		case "user":
-			messages = append(messages, openrouter.UserMessage(msg.Content))
-		case "assistant":
-			messages = append(messages, openrouter.AssistantMessage(msg.Content))
-		default:
-			messages = append(messages, openrouter.UserMessage(msg.Content))
-		}
-	}
-
-	response, err := client.CreateChatCompletion(context.Background(), openrouter.ChatCompletionRequest{
-		Model:    model,
-		Messages: messages,
-	})
+	response, err := client.CreateChatCompletion(context.Background(), chatReq)
 
 	if err != nil {
 		logger.Error("Failed to create chat completion", "error", err)
@@ -87,10 +59,15 @@ func HandleAI(re *core.RequestEvent, openRouterAPIKey string) error {
 		})
 	}
 
-	content := response.Choices[0].Message.Content.Text
-	logger.Info("AI request completed successfully", "response_length", len(content))
+	message := response.Choices[0].Message
+	
+	if len(message.ToolCalls) > 0 {
+		logger.Info("AI request completed with tool calls", "tool_count", len(message.ToolCalls))
+	} else {
+		logger.Info("AI request completed successfully", "response_length", len(message.Content.Text))
+	}
 
 	return re.JSON(http.StatusOK, AIResponse{
-		Content: content,
+		Message: message,
 	})
 }
