@@ -47,7 +47,7 @@ func main() {
 		}
 
 		logServerStart(se.Server.Addr)
-		routes.Setup(se, app, envVars.ElevenlabsAPIKey, envVars.OpenRouterAPIKey)
+		routes.Setup(se, app, envVars.ElevenlabsAPIKey)
 
 		return se.Next()
 	})
