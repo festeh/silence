@@ -39,14 +39,38 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
   late AudioRecorder _audioRecorder;
   bool _isRecording = false;
   bool _isProcessing = false;
-  String? _recordedFilePath;
-  List<String> _sseEvents = [];
+  String? _transcriptionResult;
   final String _backendUrl = const String.fromEnvironment('BACKEND_URL', defaultValue: 'http://localhost:8090');
+  List<String> _exampleFiles = [];
 
   @override
   void initState() {
     super.initState();
     _audioRecorder = AudioRecorder();
+    _loadExampleFiles();
+  }
+
+  Future<void> _loadExampleFiles() async {
+    try {
+      // Get the asset manifest to find all files in examples/
+      final manifestContent = await rootBundle.loadString('AssetManifest.json');
+      final Map<String, dynamic> manifestMap = json.decode(manifestContent);
+      
+      // Filter for .wav files in examples/ directory
+      final exampleFiles = manifestMap.keys
+          .where((String key) => key.startsWith('examples/') && key.endsWith('.wav'))
+          .map((String path) => path.replaceFirst('examples/', ''))
+          .toList();
+      
+      setState(() {
+        _exampleFiles = exampleFiles;
+      });
+    } catch (e) {
+      // If loading fails, keep the list empty and show loading state
+      if (kDebugMode) {
+        print('Error loading example files: $e');
+      }
+    }
   }
 
   @override
@@ -80,8 +104,7 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
 
       setState(() {
         _isRecording = true;
-        _recordedFilePath = filePath;
-        _sseEvents.clear();
+        _transcriptionResult = null;
       });
     }
   }
@@ -90,7 +113,6 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
     final path = await _audioRecorder.stop();
     setState(() {
       _isRecording = false;
-      _recordedFilePath = path;
     });
 
     if (path != null) {
@@ -101,7 +123,7 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
   Future<void> _sendAudioToBackend(String filePath) async {
     setState(() {
       _isProcessing = true;
-      _sseEvents.add('Starting audio upload...');
+      _transcriptionResult = null;
     });
 
     try {
@@ -114,65 +136,72 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
         await http.MultipartFile.fromPath('audio', filePath),
       );
 
-      request.headers.addAll({
-        'Accept': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-      });
-
       final streamedResponse = await request.send();
+      final responseBody = await streamedResponse.stream.bytesToString();
 
       if (streamedResponse.statusCode == 200) {
+        final jsonResponse = jsonDecode(responseBody);
         setState(() {
-          _sseEvents.add('Connected to backend, receiving events...');
+          _isProcessing = false;
+          _transcriptionResult = jsonResponse['transcribed_text'] ?? 'No transcription available';
         });
-
-        streamedResponse.stream
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())
-            .listen(
-          (line) {
-            if (line.startsWith('event:')) {
-              final eventType = line.substring(6).trim();
-              setState(() {
-                _sseEvents.add('Event: $eventType');
-              });
-            } else if (line.startsWith('data:')) {
-              final data = line.substring(5).trim();
-              try {
-                final jsonData = jsonDecode(data);
-                setState(() {
-                  _sseEvents.add('Data: ${jsonEncode(jsonData)}');
-                });
-              } catch (e) {
-                setState(() {
-                  _sseEvents.add('Raw data: $data');
-                });
-              }
-            }
-          },
-          onDone: () {
-            setState(() {
-              _isProcessing = false;
-              _sseEvents.add('Processing completed');
-            });
-          },
-          onError: (error) {
-            setState(() {
-              _isProcessing = false;
-              _sseEvents.add('Error: $error');
-            });
-          },
-        );
       } else {
         setState(() {
           _isProcessing = false;
-          _sseEvents.add('HTTP Error: ${streamedResponse.statusCode}');
+          _transcriptionResult = 'Error: HTTP ${streamedResponse.statusCode}';
         });
       }
     } catch (e) {
       setState(() {
         _isProcessing = false;
-        _sseEvents.add('Exception: $e');
+        _transcriptionResult = 'Exception: $e';
+      });
+    }
+  }
+
+  Future<void> _sendExampleToBackend(String fileName) async {
+    setState(() {
+      _isProcessing = true;
+      _transcriptionResult = null;
+    });
+
+    try {
+      // Load the example file from assets
+      final ByteData data = await rootBundle.load('examples/$fileName');
+      final Uint8List bytes = data.buffer.asUint8List();
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_backendUrl/speak'),
+      );
+
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'audio',
+          bytes,
+          filename: fileName,
+        ),
+      );
+
+      final streamedResponse = await request.send();
+      final responseBody = await streamedResponse.stream.bytesToString();
+
+      if (streamedResponse.statusCode == 200) {
+        final jsonResponse = jsonDecode(responseBody);
+        setState(() {
+          _isProcessing = false;
+          _transcriptionResult = jsonResponse['text'] ?? 'No transcription available';
+        });
+      } else {
+        setState(() {
+          _isProcessing = false;
+          _transcriptionResult = 'Error: HTTP ${streamedResponse.statusCode}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _transcriptionResult = 'Exception: $e';
       });
     }
   }
@@ -221,86 +250,69 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Expanded(
-              child: Card(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Text(
-                        'SSE Events Log',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
+            Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      'Example Audio Files',
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    const Divider(),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _sseEvents.length,
-                        itemBuilder: (context, index) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  width: 40,
-                                  child: SelectableText(
-                                    '${index + 1}',
-                                    style: Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: SelectableText(
-                                    _sseEvents[index],
-                                    style: const TextStyle(fontFamily: 'monospace'),
-                                    contextMenuBuilder: (context, editableTextState) {
-                                      return AdaptiveTextSelectionToolbar.buttonItems(
-                                        anchors: editableTextState.contextMenuAnchors,
-                                        buttonItems: [
-                                          ContextMenuButtonItem(
-                                            label: 'Copy',
-                                            onPressed: () {
-                                              final selectedText = editableTextState.textEditingValue.selection.textInside(editableTextState.textEditingValue.text);
-                                              if (selectedText.isNotEmpty) {
-                                                Clipboard.setData(ClipboardData(text: selectedText));
-                                              }
-                                              ContextMenuController.removeAny();
-                                            },
-                                          ),
-                                          ContextMenuButtonItem(
-                                            label: 'Copy All',
-                                            onPressed: () {
-                                              Clipboard.setData(ClipboardData(text: _sseEvents[index]));
-                                              ContextMenuController.removeAny();
-                                            },
-                                          ),
-                                          ContextMenuButtonItem(
-                                            label: 'Copy All Events',
-                                            onPressed: () {
-                                              final allEvents = _sseEvents.asMap().entries
-                                                  .map((entry) => '${entry.key + 1}: ${entry.value}')
-                                                  .join('\n');
-                                              Clipboard.setData(ClipboardData(text: allEvents));
-                                              ContextMenuController.removeAny();
-                                            },
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                  ),
+                  const Divider(),
+                  if (_exampleFiles.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Center(
+                        child: Text('Loading example files...'),
                       ),
-                    ),
-                  ],
-                ),
+                    )
+                  else
+                    ..._exampleFiles.map((fileName) => ListTile(
+                      leading: const Icon(Icons.audiotrack),
+                      title: Text(fileName),
+                      trailing: _isProcessing 
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.play_arrow),
+                      onTap: _isProcessing ? null : () => _sendExampleToBackend(fileName),
+                    )),
+                ],
               ),
             ),
+            const SizedBox(height: 16),
+            if (_transcriptionResult != null)
+              Expanded(
+                child: Card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text(
+                          'Transcription Result',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      const Divider(),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: SelectableText(
+                            _transcriptionResult!,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),

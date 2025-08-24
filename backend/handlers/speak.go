@@ -66,7 +66,7 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 
 	// Send JSON response immediately after transcription
 	response := map[string]any{
-		"transcribed_text": result.Text,
+		"text": result.Text,
 		"timestamp":        time.Now().Unix(),
 	}
 	
