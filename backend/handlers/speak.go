@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"time"
 
@@ -56,6 +57,14 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 		return sendJSONError(re, "audio file is empty")
 	}
 
+	// Calculate audio length from WAV data (assuming 16kHz, 1 channel, 16-bit)
+	// WAV header is 44 bytes, so subtract that from total size
+	audioDataSize := len(wavData) - 44
+	if audioDataSize < 0 {
+		audioDataSize = 0
+	}
+	audioLength := calculateAudioLength(audioDataSize)
+
 	// Use shared transcription function for WAV
 	logger.Info("Starting WAV transcription")
 	result, err := transcription.TranscribeWAV(wavData, elevenlabsAPIKey)
@@ -67,6 +76,7 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 	// Send JSON response immediately after transcription
 	response := map[string]any{
 		"text": result.Text,
+		"audio_length": audioLength,
 		"timestamp":        time.Now().Unix(),
 	}
 	
@@ -135,6 +145,15 @@ func sendJSONError(re *core.RequestEvent, message string) error {
 	return nil
 }
 
+func calculateAudioLength(dataSize int) int {
+	sampleRate := 16000
+	channels := 1
+	bitsPerSample := 16
+	bytesPerSample := bitsPerSample / 8
+	totalSamples := dataSize / (bytesPerSample * channels)
+	return int(math.Ceil(float64(totalSamples) / float64(sampleRate)))
+}
+
 type AudioTranscriptionRequest struct {
 	PCMData []byte `json:"pcm_data"`
 }
@@ -152,6 +171,9 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error
 		return sendJSONError(re, "pcm_data is required")
 	}
 
+	// Calculate audio length from PCM data (16kHz, 1 channel, 16-bit)
+	audioLength := calculateAudioLength(len(req.PCMData))
+
 	// Use shared transcription function for PCM
 	logger.Info("Starting PCM transcription", "data_size", len(req.PCMData))
 	result, err := transcription.TranscribePCM(req.PCMData, apiKey)
@@ -163,6 +185,7 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error
 	// Send JSON response
 	response := map[string]any{
 		"result":    result,
+		"audio_length": audioLength,
 		"timestamp": time.Now().Unix(),
 	}
 	
