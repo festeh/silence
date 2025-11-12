@@ -15,6 +15,35 @@ import (
 	"silence-backend/transcription"
 )
 
+// HandleSpeak processes audio transcription requests via two input formats:
+// - Multipart form data with WAV audio file (frontend usage)
+// - JSON with PCM data (CLI usage)
+//
+// Endpoint: POST /speak
+//
+// Request (multipart/form-data):
+//   - audio: WAV file (max 32MB, 16kHz, 1 channel, 16-bit)
+//
+// Request (application/json):
+//   {
+//     "pcm_data": []byte  // Raw PCM audio data (16kHz, 1 channel, 16-bit)
+//   }
+//
+// Response (200 OK):
+//   {
+//     "text": string,          // Transcribed text from ElevenLabs API
+//     "audio_length": int,     // Audio duration in seconds
+//     "timestamp": int64       // Unix timestamp
+//   }
+//
+// Response (400 Bad Request):
+//   {
+//     "error": string,         // Error description
+//     "timestamp": int64       // Unix timestamp
+//   }
+//
+// The function transcribes audio using the ElevenLabs API and asynchronously
+// saves compressed audio to the PocketBase database (multipart requests only).
 func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) error {
 	logger.Info("Starting audio processing request")
 
@@ -94,6 +123,9 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 	return nil
 }
 
+// saveAudioToDatabase compresses WAV audio and stores it in the PocketBase database.
+// This function runs asynchronously in a goroutine to avoid blocking the response.
+// The audio is compressed and base64-encoded before storage in the 'silence' collection.
 func saveAudioToDatabase(app core.App, wavData []byte, transcriptionText string) {
 	logger.Info("Starting background compression and database storage")
 	
@@ -127,6 +159,8 @@ func saveAudioToDatabase(app core.App, wavData []byte, transcriptionText string)
 	logger.Info("Background processing completed successfully", "record_id", record.Id)
 }
 
+// sendJSONError sends a JSON-formatted error response with a 400 status code.
+// The response includes the error message and current timestamp.
 func sendJSONError(re *core.RequestEvent, message string) error {
 	errorData := map[string]any{
 		"error":     message,
@@ -145,6 +179,8 @@ func sendJSONError(re *core.RequestEvent, message string) error {
 	return nil
 }
 
+// calculateAudioLength calculates audio duration in seconds from raw audio data size.
+// Assumes 16kHz sample rate, 1 channel (mono), and 16-bit depth.
 func calculateAudioLength(dataSize int) int {
 	sampleRate := 16000
 	channels := 1
@@ -154,10 +190,15 @@ func calculateAudioLength(dataSize int) int {
 	return int(math.Ceil(float64(totalSamples) / float64(sampleRate)))
 }
 
+// AudioTranscriptionRequest represents a JSON request for audio transcription.
+// Used by CLI tools to send raw PCM audio data for transcription.
 type AudioTranscriptionRequest struct {
 	PCMData []byte `json:"pcm_data"`
 }
 
+// handleJSONRequest processes JSON-based audio transcription requests.
+// Accepts raw PCM data and returns transcription without database storage.
+// This is primarily used by CLI tools that send PCM data directly.
 func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error {
 	var req AudioTranscriptionRequest
 	err := json.NewDecoder(re.Request.Body).Decode(&req)
