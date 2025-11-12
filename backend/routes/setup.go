@@ -3,6 +3,7 @@ package routes
 
 import (
 	"silence-backend/handlers"
+	"silence-backend/transcription"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -19,10 +20,10 @@ func SetCORSHeaders(re *core.RequestEvent) {
 // Configures the following endpoints:
 //   - POST /speak: Audio transcription (multipart or JSON)
 //   - OPTIONS /speak: CORS preflight handling
-func Setup(se *core.ServeEvent, app core.App, elevenlabsAPIKey string) {
+func Setup(se *core.ServeEvent, app core.App, provider transcription.TranscriptionProvider) {
 	se.Router.POST("/speak", func(re *core.RequestEvent) error {
 		SetCORSHeaders(re)
-		return handlers.HandleSpeak(re, app, elevenlabsAPIKey)
+		return handlers.HandleSpeak(re, app, provider)
 	})
 
 	se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {

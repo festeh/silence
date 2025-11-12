@@ -7,6 +7,7 @@ import (
 	"silence-backend/env"
 	"silence-backend/logger"
 	"silence-backend/routes"
+	"silence-backend/transcription"
 	"strings"
 
 	"github.com/pocketbase/pocketbase"
@@ -46,8 +47,12 @@ func main() {
 			return err
 		}
 
+		// Create transcription provider chain
+		elevenlabsProvider := transcription.NewElevenLabsProvider(envVars.ElevenlabsAPIKey)
+		providerChain := transcription.NewProviderChain(elevenlabsProvider)
+
 		logServerStart(se.Server.Addr)
-		routes.Setup(se, app, envVars.ElevenlabsAPIKey)
+		routes.Setup(se, app, providerChain)
 
 		return se.Next()
 	})

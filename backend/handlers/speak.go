@@ -31,7 +31,7 @@ import (
 //
 // Response (200 OK):
 //   {
-//     "text": string,          // Transcribed text from ElevenLabs API
+//     "text": string,          // Transcribed text
 //     "audio_length": int,     // Audio duration in seconds
 //     "timestamp": int64       // Unix timestamp
 //   }
@@ -42,9 +42,9 @@ import (
 //     "timestamp": int64       // Unix timestamp
 //   }
 //
-// The function transcribes audio using the ElevenLabs API and asynchronously
+// The function transcribes audio using the configured provider chain and asynchronously
 // saves compressed audio to the PocketBase database (multipart requests only).
-func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) error {
+func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.TranscriptionProvider) error {
 	logger.Info("Starting audio processing request")
 
 	// Set JSON response headers
@@ -55,7 +55,7 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 	contentType := re.Request.Header.Get("Content-Type")
 
 	if contentType == "application/json" {
-		return handleJSONRequest(re, app, elevenlabsAPIKey)
+		return handleJSONRequest(re, app, provider)
 	}
 
 	// Handle multipart form data (frontend)
@@ -94,9 +94,9 @@ func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) e
 	}
 	audioLength := calculateAudioLength(audioDataSize)
 
-	// Use shared transcription function for WAV
+	// Use provider to transcribe WAV
 	logger.Info("Starting WAV transcription")
-	result, err := transcription.TranscribeWAV(wavData, elevenlabsAPIKey)
+	result, err := provider.Transcribe(wavData)
 	if err != nil {
 		logger.Error("Failed to transcribe WAV audio", "error", err)
 		return sendJSONError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
@@ -199,7 +199,7 @@ type AudioTranscriptionRequest struct {
 // handleJSONRequest processes JSON-based audio transcription requests.
 // Accepts raw PCM data and returns transcription without database storage.
 // This is primarily used by CLI tools that send PCM data directly.
-func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error {
+func handleJSONRequest(re *core.RequestEvent, app core.App, provider transcription.TranscriptionProvider) error {
 	var req AudioTranscriptionRequest
 	err := json.NewDecoder(re.Request.Body).Decode(&req)
 	if err != nil {
@@ -215,9 +215,17 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error
 	// Calculate audio length from PCM data (16kHz, 1 channel, 16-bit)
 	audioLength := calculateAudioLength(len(req.PCMData))
 
-	// Use shared transcription function for PCM
-	logger.Info("Starting PCM transcription", "data_size", len(req.PCMData))
-	result, err := transcription.TranscribePCM(req.PCMData, apiKey)
+	// Convert PCM to WAV
+	logger.Info("Converting PCM to WAV", "data_size", len(req.PCMData))
+	wavData, err := transcription.PcmToWav(req.PCMData, 16000, 1, 16)
+	if err != nil {
+		logger.Error("Failed to convert PCM to WAV", "error", err)
+		return sendJSONError(re, fmt.Sprintf("Failed to convert PCM to WAV: %v", err))
+	}
+
+	// Use provider to transcribe WAV
+	logger.Info("Starting PCM transcription")
+	result, err := provider.Transcribe(wavData)
 	if err != nil {
 		logger.Error("Failed to transcribe PCM audio", "error", err)
 		return sendJSONError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
@@ -225,9 +233,9 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error
 
 	// Send JSON response
 	response := map[string]any{
-		"result":    result,
+		"text":         result.Text,
 		"audio_length": audioLength,
-		"timestamp": time.Now().Unix(),
+		"timestamp":    time.Now().Unix(),
 	}
 	
 	jsonData, err := json.Marshal(response)
