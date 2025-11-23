@@ -1,5 +1,19 @@
 package main
 
+// @title Silence API
+// @version 1.0
+// @description AI-powered audio transcription service with ElevenLabs integration
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.email support@silence.local
+
+// @license.name MIT
+// @license.url https://opensource.org/licenses/MIT
+
+// @host localhost:8090
+// @BasePath /
+
 import (
 	"log"
 	"silence-backend/auth"

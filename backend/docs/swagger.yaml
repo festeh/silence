@@ -1,0 +1,70 @@
+basePath: /
+definitions:
+  handlers.AudioTranscriptionRequest:
+    type: object
+  handlers.ErrorResponse:
+    properties:
+      error:
+        example: Invalid audio format
+        type: string
+      timestamp:
+        example: 1629840000
+        type: integer
+    type: object
+  handlers.SuccessResponse:
+    properties:
+      audio_length:
+        example: 15
+        type: integer
+      text:
+        example: Hello world, this is a transcription
+        type: string
+      timestamp:
+        example: 1629840000
+        type: integer
+    type: object
+host: localhost:8090
+info:
+  contact:
+    email: support@silence.local
+    name: API Support
+  description: AI-powered audio transcription service with ElevenLabs integration
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Silence API
+  version: "1.0"
+paths:
+  /speak:
+    post:
+      consumes:
+      - multipart/form-data
+      - application/json
+      description: Accepts audio in multipart/form-data (WAV file) or application/json
+        (PCM data) format and returns transcribed text using ElevenLabs API
+      parameters:
+      - description: WAV audio file (multipart/form-data only, max 32MB)
+        in: formData
+        name: audio
+        type: file
+      - description: PCM audio data (application/json only)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handlers.AudioTranscriptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Transcription successful
+          schema:
+            $ref: '#/definitions/handlers.SuccessResponse'
+        "400":
+          description: Bad request (invalid format, empty audio, etc.)
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Transcribe audio
+      tags:
+      - Audio
+swagger: "2.0"

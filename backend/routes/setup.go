@@ -2,8 +2,10 @@ package routes
 
 import (
 	"silence-backend/handlers"
+	_ "silence-backend/docs" // Swagger docs
 
 	"github.com/pocketbase/pocketbase/core"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func SetCORSHeaders(re *core.RequestEvent) {
@@ -21,6 +23,12 @@ func Setup(se *core.ServeEvent, app core.App, elevenlabsAPIKey string) {
 	se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {
 		SetCORSHeaders(re)
 		return re.NoContent(200)
+	})
+
+	// Swagger UI endpoint
+	se.Router.GET("/swagger/*", func(re *core.RequestEvent) error {
+		httpSwagger.WrapHandler(re.Response, re.Request)
+		return nil
 	})
 
 }

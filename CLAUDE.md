@@ -15,11 +15,11 @@ Silence is an AI-powered audio transcription application with a Go backend and F
   - `silence`: Stores compressed audio (base64) and transcription results
   - `apps`: Stores application metadata
 - **Key modules**:
-  - `handlers/speak.go`: Processes audio uploads via SSE (Server-Sent Events), handles both multipart form data and JSON
-  - `handlers/ai.go`: AI chat completion using OpenRouter API
+  - `handlers/speak.go`: Processes audio uploads, handles both multipart form data and JSON
   - `transcription/`: Audio transcription using ElevenLabs
   - `compression/`: Audio compression utilities
   - `database/collections.go`: Auto-creates required database collections
+  - `routes/setup.go`: Route registration and CORS configuration
   - `env/`: Environment variable management
 
 ### Frontend (Flutter)
@@ -51,21 +51,20 @@ flutter test                     # Run tests
 
 ## Environment Variables (Backend)
 - `ELEVENLABS_API_KEY`: Required for audio transcription
-- `OPENROUTER_API_KEY`: Required for AI chat completion
 - `SILENCE_EMAIL`: Optional superuser email for PocketBase
 - `SILENCE_PASSWORD`: Optional superuser password for PocketBase
 
 ## API Endpoints
 - `POST /speak`: Audio upload and transcription (supports multipart form and JSON with PCM data)
-- `POST /ai`: Chat completion via OpenRouter
+- `GET /swagger/*`: Interactive Swagger API documentation (access at `/swagger/index.html`)
 - Standard PocketBase admin UI and API endpoints
 
 ## Data Flow
 1. Frontend records WAV audio
 2. Audio uploaded to `/speak` endpoint
-3. Backend compresses audio, transcribes via ElevenLabs
-4. Results stored in PocketBase `silence` collection
-5. Real-time progress sent to frontend via SSE
+3. Backend transcribes audio via ElevenLabs API
+4. Transcription result returned immediately as JSON response
+5. Audio compression and database storage happens asynchronously in background
 
 ## Testing
 No specific test commands found - use standard Go testing (`go test ./...`) and Flutter testing (`flutter test`).

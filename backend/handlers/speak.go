@@ -15,6 +15,31 @@ import (
 	"silence-backend/transcription"
 )
 
+// SuccessResponse represents a successful transcription response
+type SuccessResponse struct {
+	Text        string `json:"text" example:"Hello world, this is a transcription"`
+	AudioLength int    `json:"audio_length" example:"15"`
+	Timestamp   int64  `json:"timestamp" example:"1629840000"`
+}
+
+// ErrorResponse represents an error response
+type ErrorResponse struct {
+	Error     string `json:"error" example:"Invalid audio format"`
+	Timestamp int64  `json:"timestamp" example:"1629840000"`
+}
+
+// HandleSpeak godoc
+// @Summary Transcribe audio
+// @Description Accepts audio in multipart/form-data (WAV file) or application/json (PCM data) format and returns transcribed text using ElevenLabs API
+// @Tags Audio
+// @Accept multipart/form-data
+// @Accept json
+// @Produce json
+// @Param audio formData file false "WAV audio file (multipart/form-data only, max 32MB)"
+// @Param body body AudioTranscriptionRequest false "PCM audio data (application/json only)"
+// @Success 200 {object} SuccessResponse "Transcription successful"
+// @Failure 400 {object} ErrorResponse "Bad request (invalid format, empty audio, etc.)"
+// @Router /speak [post]
 func HandleSpeak(re *core.RequestEvent, app core.App, elevenlabsAPIKey string) error {
 	logger.Info("Starting audio processing request")
 
@@ -154,8 +179,9 @@ func calculateAudioLength(dataSize int) int {
 	return int(math.Ceil(float64(totalSamples) / float64(sampleRate)))
 }
 
+// AudioTranscriptionRequest represents a JSON request with PCM audio data
 type AudioTranscriptionRequest struct {
-	PCMData []byte `json:"pcm_data"`
+	PCMData []byte `json:"pcm_data" example:"<binary PCM data>"`
 }
 
 func handleJSONRequest(re *core.RequestEvent, app core.App, apiKey string) error {
