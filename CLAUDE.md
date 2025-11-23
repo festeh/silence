@@ -59,6 +59,13 @@ flutter test                     # Run tests
 - `GET /swagger/*`: Interactive Swagger API documentation (access at `/swagger/index.html`)
 - Standard PocketBase admin UI and API endpoints
 
+## API Documentation
+The project uses Swagger/OpenAPI for API documentation:
+- **Swagger UI**: Available at `http://localhost:8090/swagger/index.html` when server is running
+- **Generation**: Run `swag init -g main.go` from the `backend/` directory to regenerate docs
+- **Annotations**: API documentation is maintained via code comments in `main.go` and `handlers/speak.go`
+- **Spec files**: Generated OpenAPI specs are in `backend/docs/` (swagger.json, swagger.yaml)
+
 ## Data Flow
 1. Frontend records WAV audio
 2. Audio uploaded to `/speak` endpoint
