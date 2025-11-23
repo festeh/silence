@@ -42,7 +42,8 @@ paths:
       - multipart/form-data
       - application/json
       description: Accepts audio in multipart/form-data (WAV file) or application/json
-        (PCM data) format and returns transcribed text using ElevenLabs API
+        (PCM data) format and returns transcribed text using the configured transcription
+        provider
       parameters:
       - description: WAV audio file (multipart/form-data only, max 32MB)
         in: formData

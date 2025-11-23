@@ -11,34 +11,37 @@ import (
 	"time"
 )
 
-type ElevenLabsResponse struct {
+// elevenLabsResponse represents the API response from ElevenLabs speech-to-text.
+type elevenLabsResponse struct {
 	LanguageCode        string  `json:"language_code"`
 	LanguageProbability float64 `json:"language_probability"`
 	Text                string  `json:"text"`
-	Words               []Word  `json:"words"`
+	Words               []word  `json:"words"`
 }
 
-type Word struct {
+// word represents timestamped word data from ElevenLabs response.
+type word struct {
 	Word      string  `json:"word"`
 	Start     float64 `json:"start"`
 	End       float64 `json:"end"`
 	Punctuate bool    `json:"punctuate"`
 }
 
-// TranscribePCM transcribes PCM S16LE audio data using ElevenLabs API
-func TranscribePCM(pcmData []byte, apiKey string) (*ElevenLabsResponse, error) {
-	// Convert PCM S16LE to WAV format
-	wavData, err := pcmToWav(pcmData, 16000, 1, 16)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert PCM to WAV: %v", err)
-	}
-
-	return TranscribeWAV(wavData, apiKey)
+// ElevenLabsProvider implements transcription using the ElevenLabs API.
+type ElevenLabsProvider struct {
+	apiKey string
 }
 
-// TranscribeWAV transcribes WAV audio data using ElevenLabs API
-func TranscribeWAV(wavData []byte, apiKey string) (*ElevenLabsResponse, error) {
+// NewElevenLabsProvider creates a new ElevenLabs transcription provider.
+func NewElevenLabsProvider(apiKey string) *ElevenLabsProvider {
+	return &ElevenLabsProvider{
+		apiKey: apiKey,
+	}
+}
 
+// Transcribe processes WAV audio data using the ElevenLabs API.
+// Returns transcribed text and detected language code.
+func (p *ElevenLabsProvider) Transcribe(wavData []byte) (*TranscriptionResult, error) {
 	// Create multipart form data
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -71,7 +74,7 @@ func TranscribeWAV(wavData []byte, apiKey string) (*ElevenLabsResponse, error) {
 		return nil, fmt.Errorf("failed to create ElevenLabs request: %v", err)
 	}
 
-	req.Header.Set("xi-api-key", apiKey)
+	req.Header.Set("xi-api-key", p.apiKey)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Make request to ElevenLabs
@@ -88,17 +91,22 @@ func TranscribeWAV(wavData []byte, apiKey string) (*ElevenLabsResponse, error) {
 	}
 
 	// Parse ElevenLabs response
-	var elevenLabsResp ElevenLabsResponse
+	var elevenLabsResp elevenLabsResponse
 	err = json.NewDecoder(resp.Body).Decode(&elevenLabsResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode ElevenLabs response: %v", err)
 	}
 
-	return &elevenLabsResp, nil
+	// Map to generic result
+	return &TranscriptionResult{
+		Text:         elevenLabsResp.Text,
+		LanguageCode: elevenLabsResp.LanguageCode,
+	}, nil
 }
 
-// pcmToWav converts PCM S16LE data to WAV format
-func pcmToWav(pcmData []byte, sampleRate, channels, bitsPerSample int) ([]byte, error) {
+// PcmToWav converts PCM S16LE data to WAV format.
+// Assumes 16kHz sample rate, 1 channel (mono), and 16-bit depth.
+func PcmToWav(pcmData []byte, sampleRate, channels, bitsPerSample int) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// WAV header

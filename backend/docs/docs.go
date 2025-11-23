@@ -25,7 +25,7 @@ const docTemplate = `{
     "paths": {
         "/speak": {
             "post": {
-                "description": "Accepts audio in multipart/form-data (WAV file) or application/json (PCM data) format and returns transcribed text using ElevenLabs API",
+                "description": "Accepts audio in multipart/form-data (WAV file) or application/json (PCM data) format and returns transcribed text using the configured transcription provider",
                 "consumes": [
                     "multipart/form-data",
                     "application/json"
