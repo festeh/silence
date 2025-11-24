@@ -31,14 +31,13 @@ type ErrorResponse struct {
 
 // HandleSpeak godoc
 // @Summary Transcribe audio
-// @Description Accepts audio in multipart/form-data (WAV file) or application/json (PCM data) format and returns transcribed text using the configured transcription provider
+// @Description Accepts audio in multipart/form-data format and returns transcribed text using the configured transcription provider. Supports both PCM and WAV formats.
 // @Tags Audio
 // @Accept multipart/form-data
-// @Accept json
 // @Produce json
-// @Param audio formData file false "WAV audio file (multipart/form-data only, max 32MB)"
-// @Param language_code formData string false "ISO-639-1 or ISO-639-3 language code (multipart/form-data only). Use 'auto' or omit for auto-detection. Examples: 'en', 'es', 'fr'"
-// @Param body body AudioTranscriptionRequest false "PCM audio data with optional language_code (application/json only)"
+// @Param audio formData file true "Audio file (PCM or WAV format, max 32MB)"
+// @Param file_format formData string false "Audio format: 'pcm_s16le_16' or 'wav'. Defaults to 'pcm_s16le_16' for lower latency. Use pcm_s16le_16 for 16-bit PCM at 16kHz, mono, little-endian."
+// @Param language_code formData string false "ISO-639-1 or ISO-639-3 language code. Use 'auto' or omit for auto-detection. Examples: 'en', 'es', 'fr'"
 // @Success 200 {object} SuccessResponse "Transcription successful"
 // @Failure 400 {object} ErrorResponse "Bad request (invalid format, empty audio, etc.)"
 // @Router /speak [post]
@@ -49,14 +48,7 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 	re.Response.Header().Set("Content-Type", "application/json")
 	re.Response.Header().Set("Access-Control-Allow-Origin", "*")
 
-	// Check if it's multipart form data (frontend) or JSON (CLI via backend)
-	contentType := re.Request.Header.Get("Content-Type")
-
-	if contentType == "application/json" {
-		return handleJSONRequest(re, app, provider)
-	}
-
-	// Handle multipart form data (frontend)
+	// Handle multipart form data
 	logger.Info("Processing multipart form data")
 	err := re.Request.ParseMultipartForm(32 << 20) // 32MB max
 	if err != nil {
@@ -78,33 +70,40 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 		languageCode = "auto"
 	}
 
-	// Read the WAV file data
-	wavData, err := io.ReadAll(file)
+	// Get optional file_format from form (default to pcm_s16le_16)
+	fileFormat := re.Request.FormValue("file_format")
+	if fileFormat == "" {
+		fileFormat = "pcm_s16le_16"
+	}
+
+	// Read the audio file data
+	audioData, err := io.ReadAll(file)
 	if err != nil {
 		logger.Error("Failed to read audio file", "error", err)
 		return sendJSONError(re, "Failed to read audio file")
 	}
 
-	if len(wavData) == 0 {
+	if len(audioData) == 0 {
 		logger.Error("Audio file is empty")
 		return sendJSONError(re, "audio file is empty")
 	}
 
-	// Calculate audio length from WAV data (assuming 16kHz, 1 channel, 16-bit)
-	// WAV header is 44 bytes, so subtract that from total size
-	audioDataSize := len(wavData) - 44
-	if audioDataSize < 0 {
-		audioDataSize = 0
-	}
-	audioLength := calculateAudioLength(audioDataSize)
+	// Calculate audio length (assuming 16kHz, 1 channel, 16-bit PCM)
+	audioLength := calculateAudioLength(len(audioData))
 
-	// Use provider to transcribe WAV
-	logger.Info("Starting WAV transcription", "language_code", languageCode)
-	result, err := provider.Transcribe(wavData, transcription.TranscriptionOptions{
+	// Use provider to transcribe audio
+	logger.Info("Starting audio transcription", "language_code", languageCode, "file_format", fileFormat)
+	result, err := provider.Transcribe(audioData, transcription.TranscriptionOptions{
 		LanguageCode: languageCode,
+		Metadata: transcription.AudioMetadata{
+			Format:        transcription.AudioFormat(fileFormat),
+			SampleRate:    16000,
+			Channels:      1,
+			BitsPerSample: 16,
+		},
 	})
 	if err != nil {
-		logger.Error("Failed to transcribe WAV audio", "error", err)
+		logger.Error("Failed to transcribe audio", "error", err)
 		return sendJSONError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
 	}
 
@@ -125,20 +124,20 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 	re.Response.Write(jsonData)
 
 	// Handle compression and database storage asynchronously
-	go saveAudioToDatabase(app, wavData, result.Text)
+	go saveAudioToDatabase(app, audioData, result.Text)
 
 	return nil
 }
 
-// saveAudioToDatabase compresses WAV audio and stores it in the PocketBase database.
+// saveAudioToDatabase compresses audio data and stores it in the PocketBase database.
 // This function runs asynchronously in a goroutine to avoid blocking the response.
 // The audio is compressed and base64-encoded before storage in the 'silence' collection.
-func saveAudioToDatabase(app core.App, wavData []byte, transcriptionText string) {
+func saveAudioToDatabase(app core.App, audioData []byte, transcriptionText string) {
 	logger.Info("Starting background compression and database storage")
 
 	// Compress the audio data
-	logger.Info("Compressing audio data", "original_size", len(wavData))
-	compressedData, err := compression.CompressAudio(wavData)
+	logger.Info("Compressing audio data", "original_size", len(audioData))
+	compressedData, err := compression.CompressAudio(audioData)
 	if err != nil {
 		logger.Error("Failed to compress audio in background", "error", err)
 		return
@@ -195,72 +194,4 @@ func calculateAudioLength(dataSize int) int {
 	bytesPerSample := bitsPerSample / 8
 	totalSamples := dataSize / (bytesPerSample * channels)
 	return int(math.Ceil(float64(totalSamples) / float64(sampleRate)))
-}
-
-// AudioTranscriptionRequest represents a JSON request for audio transcription.
-// Used by CLI tools to send raw PCM audio data for transcription.
-type AudioTranscriptionRequest struct {
-	PCMData      []byte `json:"pcm_data"`
-	LanguageCode string `json:"language_code,omitempty"` // Optional ISO-639-1 or ISO-639-3 language code. Use "auto" or empty for auto-detection.
-}
-
-// handleJSONRequest processes JSON-based audio transcription requests.
-// Accepts raw PCM data and returns transcription without database storage.
-// This is primarily used by CLI tools that send PCM data directly.
-func handleJSONRequest(re *core.RequestEvent, app core.App, provider transcription.TranscriptionProvider) error {
-	var req AudioTranscriptionRequest
-	err := json.NewDecoder(re.Request.Body).Decode(&req)
-	if err != nil {
-		logger.Error("Failed to decode audio transcription request", "error", err)
-		return sendJSONError(re, "Failed to decode audio transcription request")
-	}
-
-	if len(req.PCMData) == 0 {
-		logger.Error("PCM data is empty")
-		return sendJSONError(re, "pcm_data is required")
-	}
-
-	// Get language_code from request, default to "auto"
-	languageCode := req.LanguageCode
-	if languageCode == "" {
-		languageCode = "auto"
-	}
-
-	// Calculate audio length from PCM data (16kHz, 1 channel, 16-bit)
-	audioLength := calculateAudioLength(len(req.PCMData))
-
-	// Convert PCM to WAV
-	logger.Info("Converting PCM to WAV", "data_size", len(req.PCMData))
-	wavData, err := transcription.PcmToWav(req.PCMData, 16000, 1, 16)
-	if err != nil {
-		logger.Error("Failed to convert PCM to WAV", "error", err)
-		return sendJSONError(re, fmt.Sprintf("Failed to convert PCM to WAV: %v", err))
-	}
-
-	// Use provider to transcribe WAV
-	logger.Info("Starting PCM transcription", "language_code", languageCode)
-	result, err := provider.Transcribe(wavData, transcription.TranscriptionOptions{
-		LanguageCode: languageCode,
-	})
-	if err != nil {
-		logger.Error("Failed to transcribe PCM audio", "error", err)
-		return sendJSONError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
-	}
-
-	// Send JSON response
-	response := map[string]any{
-		"text":          result.Text,
-		"language_code": result.LanguageCode,
-		"audio_length":  audioLength,
-		"timestamp":     time.Now().Unix(),
-	}
-
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		return sendJSONError(re, "Failed to encode response")
-	}
-
-	re.Response.WriteHeader(http.StatusOK)
-	re.Response.Write(jsonData)
-	return nil
 }

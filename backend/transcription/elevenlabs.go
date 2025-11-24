@@ -2,7 +2,6 @@ package transcription
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,9 +38,9 @@ func NewElevenLabsProvider(apiKey string) *ElevenLabsProvider {
 	}
 }
 
-// Transcribe processes WAV audio data using the ElevenLabs API.
+// Transcribe processes audio data using the ElevenLabs API.
 // Returns transcribed text and detected language code.
-func (p *ElevenLabsProvider) Transcribe(wavData []byte, opts TranscriptionOptions) (*TranscriptionResult, error) {
+func (p *ElevenLabsProvider) Transcribe(audioData []byte, opts TranscriptionOptions) (*TranscriptionResult, error) {
 	// Create multipart form data
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -50,6 +49,25 @@ func (p *ElevenLabsProvider) Transcribe(wavData []byte, opts TranscriptionOption
 	err := writer.WriteField("model_id", "scribe_v1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to write model_id field: %v", err)
+	}
+
+	// Determine file_format and filename based on metadata
+	var fileFormat, filename string
+	switch opts.Metadata.Format {
+	case AudioFormatPCMLE16:
+		fileFormat = "pcm_s16le_16"
+		filename = "audio.pcm"
+	case AudioFormatWAV:
+		fileFormat = "other"
+		filename = "audio.wav"
+	default:
+		return nil, fmt.Errorf("unsupported audio format: %s", opts.Metadata.Format)
+	}
+
+	// Add file_format field
+	err = writer.WriteField("file_format", fileFormat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write file_format field: %v", err)
 	}
 
 	// Add language_code field if specified (not "auto" or empty)
@@ -61,12 +79,12 @@ func (p *ElevenLabsProvider) Transcribe(wavData []byte, opts TranscriptionOption
 	}
 
 	// Add audio file
-	fileWriter, err := writer.CreateFormFile("file", "audio.wav")
+	fileWriter, err := writer.CreateFormFile("file", filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create form file: %v", err)
 	}
 
-	_, err = fileWriter.Write(wavData)
+	_, err = fileWriter.Write(audioData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write audio data: %v", err)
 	}
@@ -110,40 +128,4 @@ func (p *ElevenLabsProvider) Transcribe(wavData []byte, opts TranscriptionOption
 		Text:         elevenLabsResp.Text,
 		LanguageCode: elevenLabsResp.LanguageCode,
 	}, nil
-}
-
-// PcmToWav converts PCM S16LE data to WAV format.
-// Assumes 16kHz sample rate, 1 channel (mono), and 16-bit depth.
-func PcmToWav(pcmData []byte, sampleRate, channels, bitsPerSample int) ([]byte, error) {
-	var buf bytes.Buffer
-
-	// WAV header
-	dataSize := len(pcmData)
-	fileSize := 36 + dataSize
-
-	// RIFF header
-	buf.WriteString("RIFF")
-	binary.Write(&buf, binary.LittleEndian, uint32(fileSize))
-	buf.WriteString("WAVE")
-
-	// fmt chunk
-	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16)) // fmt chunk size
-	binary.Write(&buf, binary.LittleEndian, uint16(1))  // PCM format
-	binary.Write(&buf, binary.LittleEndian, uint16(channels))
-	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate))
-
-	byteRate := sampleRate * channels * bitsPerSample / 8
-	binary.Write(&buf, binary.LittleEndian, uint32(byteRate))
-
-	blockAlign := channels * bitsPerSample / 8
-	binary.Write(&buf, binary.LittleEndian, uint16(blockAlign))
-	binary.Write(&buf, binary.LittleEndian, uint16(bitsPerSample))
-
-	// data chunk
-	buf.WriteString("data")
-	binary.Write(&buf, binary.LittleEndian, uint32(dataSize))
-	buf.Write(pcmData)
-
-	return buf.Bytes(), nil
 }
