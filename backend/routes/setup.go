@@ -2,6 +2,8 @@
 package routes
 
 import (
+	"net/http"
+
 	_ "silence-backend/docs" // Swagger docs
 	"silence-backend/handlers"
 	"silence-backend/transcription"
@@ -33,8 +35,21 @@ func Setup(se *core.ServeEvent, app core.App, provider transcription.Transcripti
 		return re.NoContent(200)
 	})
 
-	// Swagger UI endpoint
-	se.Router.GET("/swagger/*", func(re *core.RequestEvent) error {
+	// Swagger UI - redirect /swagger to /swagger/index.html
+	se.Router.GET("/swagger", func(re *core.RequestEvent) error {
+		http.Redirect(re.Response, re.Request, "/swagger/index.html", http.StatusMovedPermanently)
+		return nil
+	})
+
+	// Swagger UI endpoint - serves at /swagger/index.html and other swagger assets
+	se.Router.GET("/swagger/{path...}", func(re *core.RequestEvent) error {
+		// Get the wildcard path
+		path := re.Request.PathValue("path")
+
+		// Reconstruct the full path for Swagger handler
+		// Swagger expects paths like /swagger/index.html
+		re.Request.URL.Path = "/swagger/" + path
+
 		httpSwagger.WrapHandler(re.Response, re.Request)
 		return nil
 	})

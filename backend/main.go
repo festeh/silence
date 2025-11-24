@@ -26,6 +26,7 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 )
 
 func logServerStart(addr string) {
@@ -45,6 +46,18 @@ func main() {
 
 	app := pocketbase.New()
 
+	// Register custom routes with high priority (execute early)
+	app.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
+		Func: func(se *core.ServeEvent) error {
+			// Create transcription provider chain
+			elevenlabsProvider := transcription.NewElevenLabsProvider(envVars.ElevenlabsAPIKey)
+			providerChain := transcription.NewProviderChain(elevenlabsProvider)
+			routes.Setup(se, app, providerChain)
+			return se.Next()
+		},
+		Priority: 1, // Execute early (low number = early)
+	})
+
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		if err := auth.EnsureSuperuser(se.App, envVars.SilenceEmail, envVars.SilencePassword); err != nil {
 			logger.Error("Failed to ensure superuser", "error", err)
@@ -61,13 +74,7 @@ func main() {
 			return err
 		}
 
-		// Create transcription provider chain
-		elevenlabsProvider := transcription.NewElevenLabsProvider(envVars.ElevenlabsAPIKey)
-		providerChain := transcription.NewProviderChain(elevenlabsProvider)
-
 		logServerStart(se.Server.Addr)
-		routes.Setup(se, app, providerChain)
-
 		return se.Next()
 	})
 

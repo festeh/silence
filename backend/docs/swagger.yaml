@@ -1,6 +1,11 @@
 basePath: /
 definitions:
   handlers.AudioTranscriptionRequest:
+    properties:
+      pcm_data:
+        items:
+          type: integer
+        type: array
     type: object
   handlers.ErrorResponse:
     properties:

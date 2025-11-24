@@ -100,16 +100,16 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 
 	// Send JSON response immediately after transcription
 	response := map[string]any{
-		"text": result.Text,
+		"text":         result.Text,
 		"audio_length": audioLength,
-		"timestamp":        time.Now().Unix(),
+		"timestamp":    time.Now().Unix(),
 	}
-	
+
 	jsonData, err := json.Marshal(response)
 	if err != nil {
 		return sendJSONError(re, "Failed to encode response")
 	}
-	
+
 	re.Response.WriteHeader(http.StatusOK)
 	re.Response.Write(jsonData)
 
@@ -124,7 +124,7 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 // The audio is compressed and base64-encoded before storage in the 'silence' collection.
 func saveAudioToDatabase(app core.App, wavData []byte, transcriptionText string) {
 	logger.Info("Starting background compression and database storage")
-	
+
 	// Compress the audio data
 	logger.Info("Compressing audio data", "original_size", len(wavData))
 	compressedData, err := compression.CompressAudio(wavData)
@@ -135,7 +135,7 @@ func saveAudioToDatabase(app core.App, wavData []byte, transcriptionText string)
 
 	// Encode compressed audio to base64
 	base64Data := base64.StdEncoding.EncodeToString(compressedData)
-	
+
 	// Save compressed audio and transcription to database using PocketBase
 	collection, err := app.FindCollectionByNameOrId("silence")
 	if err != nil {
@@ -162,14 +162,14 @@ func sendJSONError(re *core.RequestEvent, message string) error {
 		"error":     message,
 		"timestamp": time.Now().Unix(),
 	}
-	
+
 	jsonData, err := json.Marshal(errorData)
 	if err != nil {
 		re.Response.WriteHeader(http.StatusInternalServerError)
 		re.Response.Write([]byte(`{"error": "Internal server error"}`))
 		return nil
 	}
-	
+
 	re.Response.WriteHeader(http.StatusBadRequest)
 	re.Response.Write(jsonData)
 	return nil
@@ -189,7 +189,7 @@ func calculateAudioLength(dataSize int) int {
 // AudioTranscriptionRequest represents a JSON request for audio transcription.
 // Used by CLI tools to send raw PCM audio data for transcription.
 type AudioTranscriptionRequest struct {
-	PCMData []byte `json:"pcm_data" example:"<binary PCM data>"`
+	PCMData []byte `json:"pcm_data"`
 }
 
 // handleJSONRequest processes JSON-based audio transcription requests.
@@ -233,14 +233,13 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, provider transcripti
 		"audio_length": audioLength,
 		"timestamp":    time.Now().Unix(),
 	}
-	
+
 	jsonData, err := json.Marshal(response)
 	if err != nil {
 		return sendJSONError(re, "Failed to encode response")
 	}
-	
+
 	re.Response.WriteHeader(http.StatusOK)
 	re.Response.Write(jsonData)
 	return nil
 }
-

@@ -72,7 +72,15 @@ const docTemplate = `{
     },
     "definitions": {
         "handlers.AudioTranscriptionRequest": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "pcm_data": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
         },
         "handlers.ErrorResponse": {
             "type": "object",
