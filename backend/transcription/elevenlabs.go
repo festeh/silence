@@ -41,7 +41,7 @@ func NewElevenLabsProvider(apiKey string) *ElevenLabsProvider {
 
 // Transcribe processes WAV audio data using the ElevenLabs API.
 // Returns transcribed text and detected language code.
-func (p *ElevenLabsProvider) Transcribe(wavData []byte) (*TranscriptionResult, error) {
+func (p *ElevenLabsProvider) Transcribe(wavData []byte, opts TranscriptionOptions) (*TranscriptionResult, error) {
 	// Create multipart form data
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -50,6 +50,14 @@ func (p *ElevenLabsProvider) Transcribe(wavData []byte) (*TranscriptionResult, e
 	err := writer.WriteField("model_id", "scribe_v1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to write model_id field: %v", err)
+	}
+
+	// Add language_code field if specified (not "auto" or empty)
+	if opts.LanguageCode != "" && opts.LanguageCode != "auto" {
+		err = writer.WriteField("language_code", opts.LanguageCode)
+		if err != nil {
+			return nil, fmt.Errorf("failed to write language_code field: %v", err)
+		}
 	}
 
 	// Add audio file

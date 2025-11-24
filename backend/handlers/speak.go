@@ -17,9 +17,10 @@ import (
 
 // SuccessResponse represents a successful transcription response
 type SuccessResponse struct {
-	Text        string `json:"text" example:"Hello world, this is a transcription"`
-	AudioLength int    `json:"audio_length" example:"15"`
-	Timestamp   int64  `json:"timestamp" example:"1629840000"`
+	Text         string `json:"text" example:"Hello world, this is a transcription"`
+	LanguageCode string `json:"language_code" example:"en"`
+	AudioLength  int    `json:"audio_length" example:"15"`
+	Timestamp    int64  `json:"timestamp" example:"1629840000"`
 }
 
 // ErrorResponse represents an error response
@@ -36,7 +37,8 @@ type ErrorResponse struct {
 // @Accept json
 // @Produce json
 // @Param audio formData file false "WAV audio file (multipart/form-data only, max 32MB)"
-// @Param body body AudioTranscriptionRequest false "PCM audio data (application/json only)"
+// @Param language_code formData string false "ISO-639-1 or ISO-639-3 language code (multipart/form-data only). Use 'auto' or omit for auto-detection. Examples: 'en', 'es', 'fr'"
+// @Param body body AudioTranscriptionRequest false "PCM audio data with optional language_code (application/json only)"
 // @Success 200 {object} SuccessResponse "Transcription successful"
 // @Failure 400 {object} ErrorResponse "Bad request (invalid format, empty audio, etc.)"
 // @Router /speak [post]
@@ -70,6 +72,12 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 	}
 	defer file.Close()
 
+	// Get optional language_code from form
+	languageCode := re.Request.FormValue("language_code")
+	if languageCode == "" {
+		languageCode = "auto"
+	}
+
 	// Read the WAV file data
 	wavData, err := io.ReadAll(file)
 	if err != nil {
@@ -91,8 +99,10 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 	audioLength := calculateAudioLength(audioDataSize)
 
 	// Use provider to transcribe WAV
-	logger.Info("Starting WAV transcription")
-	result, err := provider.Transcribe(wavData)
+	logger.Info("Starting WAV transcription", "language_code", languageCode)
+	result, err := provider.Transcribe(wavData, transcription.TranscriptionOptions{
+		LanguageCode: languageCode,
+	})
 	if err != nil {
 		logger.Error("Failed to transcribe WAV audio", "error", err)
 		return sendJSONError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
@@ -100,9 +110,10 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 
 	// Send JSON response immediately after transcription
 	response := map[string]any{
-		"text":         result.Text,
-		"audio_length": audioLength,
-		"timestamp":    time.Now().Unix(),
+		"text":          result.Text,
+		"language_code": result.LanguageCode,
+		"audio_length":  audioLength,
+		"timestamp":     time.Now().Unix(),
 	}
 
 	jsonData, err := json.Marshal(response)
@@ -189,7 +200,8 @@ func calculateAudioLength(dataSize int) int {
 // AudioTranscriptionRequest represents a JSON request for audio transcription.
 // Used by CLI tools to send raw PCM audio data for transcription.
 type AudioTranscriptionRequest struct {
-	PCMData []byte `json:"pcm_data"`
+	PCMData      []byte `json:"pcm_data"`
+	LanguageCode string `json:"language_code,omitempty"` // Optional ISO-639-1 or ISO-639-3 language code. Use "auto" or empty for auto-detection.
 }
 
 // handleJSONRequest processes JSON-based audio transcription requests.
@@ -208,6 +220,12 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, provider transcripti
 		return sendJSONError(re, "pcm_data is required")
 	}
 
+	// Get language_code from request, default to "auto"
+	languageCode := req.LanguageCode
+	if languageCode == "" {
+		languageCode = "auto"
+	}
+
 	// Calculate audio length from PCM data (16kHz, 1 channel, 16-bit)
 	audioLength := calculateAudioLength(len(req.PCMData))
 
@@ -220,8 +238,10 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, provider transcripti
 	}
 
 	// Use provider to transcribe WAV
-	logger.Info("Starting PCM transcription")
-	result, err := provider.Transcribe(wavData)
+	logger.Info("Starting PCM transcription", "language_code", languageCode)
+	result, err := provider.Transcribe(wavData, transcription.TranscriptionOptions{
+		LanguageCode: languageCode,
+	})
 	if err != nil {
 		logger.Error("Failed to transcribe PCM audio", "error", err)
 		return sendJSONError(re, fmt.Sprintf("Failed to transcribe audio: %v", err))
@@ -229,9 +249,10 @@ func handleJSONRequest(re *core.RequestEvent, app core.App, provider transcripti
 
 	// Send JSON response
 	response := map[string]any{
-		"text":         result.Text,
-		"audio_length": audioLength,
-		"timestamp":    time.Now().Unix(),
+		"text":          result.Text,
+		"language_code": result.LanguageCode,
+		"audio_length":  audioLength,
+		"timestamp":     time.Now().Unix(),
 	}
 
 	jsonData, err := json.Marshal(response)

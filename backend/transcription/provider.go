@@ -10,12 +10,18 @@ type TranscriptionResult struct {
 	LanguageCode string // Detected language code (e.g., "en", "es")
 }
 
+// TranscriptionOptions contains optional parameters for transcription.
+type TranscriptionOptions struct {
+	LanguageCode string // ISO-639-1 or ISO-639-3 language code. Use "auto" or empty string for auto-detection.
+}
+
 // TranscriptionProvider defines the interface for audio transcription providers.
 // Providers accept WAV audio data and return transcribed text with language detection.
 type TranscriptionProvider interface {
 	// Transcribe processes WAV audio data and returns transcription result.
+	// If opts.LanguageCode is "auto" or empty, language is auto-detected.
 	// Returns an error if transcription fails.
-	Transcribe(wavData []byte) (*TranscriptionResult, error)
+	Transcribe(wavData []byte, opts TranscriptionOptions) (*TranscriptionResult, error)
 }
 
 // ProviderChain implements a fallback mechanism for multiple transcription providers.
@@ -35,14 +41,14 @@ func NewProviderChain(providers ...TranscriptionProvider) *ProviderChain {
 // Transcribe attempts transcription with each provider until one succeeds.
 // Returns the result from the first successful provider.
 // Returns an error only if all providers fail.
-func (pc *ProviderChain) Transcribe(wavData []byte) (*TranscriptionResult, error) {
+func (pc *ProviderChain) Transcribe(wavData []byte, opts TranscriptionOptions) (*TranscriptionResult, error) {
 	if len(pc.providers) == 0 {
 		return nil, fmt.Errorf("no transcription providers configured")
 	}
 
 	var lastErr error
 	for i, provider := range pc.providers {
-		result, err := provider.Transcribe(wavData)
+		result, err := provider.Transcribe(wavData, opts)
 		if err == nil {
 			return result, nil
 		}

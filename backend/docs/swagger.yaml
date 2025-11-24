@@ -2,6 +2,10 @@ basePath: /
 definitions:
   handlers.AudioTranscriptionRequest:
     properties:
+      language_code:
+        description: Optional ISO-639-1 or ISO-639-3 language code. Use "auto" or
+          empty for auto-detection.
+        type: string
       pcm_data:
         items:
           type: integer
@@ -21,6 +25,9 @@ definitions:
       audio_length:
         example: 15
         type: integer
+      language_code:
+        example: en
+        type: string
       text:
         example: Hello world, this is a transcription
         type: string
@@ -54,7 +61,13 @@ paths:
         in: formData
         name: audio
         type: file
-      - description: PCM audio data (application/json only)
+      - description: 'ISO-639-1 or ISO-639-3 language code (multipart/form-data only).
+          Use ''auto'' or omit for auto-detection. Examples: ''en'', ''es'', ''fr'''
+        in: formData
+        name: language_code
+        type: string
+      - description: PCM audio data with optional language_code (application/json
+          only)
         in: body
         name: body
         schema:

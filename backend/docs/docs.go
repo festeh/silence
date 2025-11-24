@@ -45,7 +45,13 @@ const docTemplate = `{
                         "in": "formData"
                     },
                     {
-                        "description": "PCM audio data (application/json only)",
+                        "type": "string",
+                        "description": "ISO-639-1 or ISO-639-3 language code (multipart/form-data only). Use 'auto' or omit for auto-detection. Examples: 'en', 'es', 'fr'",
+                        "name": "language_code",
+                        "in": "formData"
+                    },
+                    {
+                        "description": "PCM audio data with optional language_code (application/json only)",
                         "name": "body",
                         "in": "body",
                         "schema": {
@@ -74,6 +80,10 @@ const docTemplate = `{
         "handlers.AudioTranscriptionRequest": {
             "type": "object",
             "properties": {
+                "language_code": {
+                    "description": "Optional ISO-639-1 or ISO-639-3 language code. Use \"auto\" or empty for auto-detection.",
+                    "type": "string"
+                },
                 "pcm_data": {
                     "type": "array",
                     "items": {
@@ -101,6 +111,10 @@ const docTemplate = `{
                 "audio_length": {
                     "type": "integer",
                     "example": 15
+                },
+                "language_code": {
+                    "type": "string",
+                    "example": "en"
                 },
                 "text": {
                     "type": "string",
