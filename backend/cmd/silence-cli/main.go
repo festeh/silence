@@ -6,71 +6,72 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
-	"silence-backend/database"
-	"silence-backend/env"
-	"silence-backend/handlers"
 	"silence-backend/logger"
 )
-
-type AudioTranscriptionRequest struct {
-	PCMData []byte `json:"pcm_data"`
-}
 
 func main() {
 	// Initialize logger
 	logger.Init()
 
-	// Load environment
-	environment, err := env.NewEnvironment()
-	if err != nil {
-		log.Fatal("Failed to load environment:", err)
-	}
+	// Define command-line flags
+	backendURL := flag.String("url", "http://localhost:8090", "Backend URL to send audio to")
+	flag.Parse()
 
-	// Initialize database client
-	db, err := database.NewClient(environment)
-	if err != nil {
-		log.Fatal("Failed to initialize database:", err)
-	}
-	defer db.Close()
+	var pcmData []byte
+	var err error
 
-	fmt.Println("Starting audio recording test CLI...")
-	fmt.Println("Press any key to stop recording and process audio")
+	// Check if a file path was provided as argument
+	args := flag.Args()
+	if len(args) > 0 {
+		filePath := args[0]
+		fmt.Printf("Reading audio from file: %s\n", filePath)
 
-	// Start audio recording
-	pcmData, err := recordAudio()
-	if err != nil {
-		log.Fatal("Failed to record audio:", err)
-	}
+		pcmData, err = readWAVFile(filePath)
+		if err != nil {
+			log.Fatal("Failed to read WAV file:", err)
+		}
 
-	if len(pcmData) == 0 {
-		fmt.Println("No audio data recorded")
-		return
-	}
-
-	fmt.Printf("Recorded %d bytes of PCM data\n", len(pcmData))
-
-	// Save recording as WAV file for investigation
-	err = saveAsWAV(pcmData, "/tmp/record.wav")
-	if err != nil {
-		log.Printf("Failed to save WAV file: %v", err)
+		fmt.Printf("Read %d bytes of PCM data from file\n", len(pcmData))
 	} else {
-		fmt.Println("Recording saved to /tmp/record.wav")
+		fmt.Println("Starting audio recording test CLI...")
+		fmt.Println("Press any key to stop recording and process audio")
+
+		// Start audio recording
+		pcmData, err = recordAudio()
+		if err != nil {
+			log.Fatal("Failed to record audio:", err)
+		}
+
+		if len(pcmData) == 0 {
+			fmt.Println("No audio data recorded")
+			return
+		}
+
+		fmt.Printf("Recorded %d bytes of PCM data\n", len(pcmData))
+
+		// Save recording as WAV file for investigation
+		err = saveAsWAV(pcmData, "/tmp/record.wav")
+		if err != nil {
+			log.Printf("Failed to save WAV file: %v", err)
+		} else {
+			fmt.Println("Recording saved to /tmp/record.wav")
+		}
 	}
 
-	// Test HandleSpeak function directly
-	err = testHandleSpeak(pcmData, db, environment)
+	// Send to backend API
+	err = sendToBackend(pcmData, *backendURL)
 	if err != nil {
-		log.Fatal("Failed to test HandleSpeak:", err)
+		log.Fatal("Failed to send to backend:", err)
 	}
 }
 
@@ -184,49 +185,96 @@ func saveAsWAV(pcmData []byte, filename string) error {
 	return nil
 }
 
-func testHandleSpeak(pcmData []byte, db *database.Client, env *env.Environment) error {
-	// Create request payload
-	request := AudioTranscriptionRequest{
-		PCMData: pcmData,
-	}
-
-	jsonData, err := json.Marshal(request)
+func readWAVFile(filePath string) ([]byte, error) {
+	// Read the entire WAV file
+	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Create a mock HTTP request
-	req, err := http.NewRequest("POST", "/speak", bytes.NewBuffer(jsonData))
+	// WAV files have a 44-byte header, extract PCM data after header
+	if len(data) < 44 {
+		return nil, fmt.Errorf("file too small to be a valid WAV file")
+	}
+
+	// Verify it's a WAV file by checking RIFF header
+	if string(data[0:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
+		return nil, fmt.Errorf("not a valid WAV file")
+	}
+
+	// Extract PCM data (skip 44-byte header)
+	pcmData := data[44:]
+
+	return pcmData, nil
+}
+
+func sendToBackend(pcmData []byte, backendURL string) error {
+	// Create multipart form
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add audio file field
+	fileWriter, err := writer.CreateFormFile("audio", "recording.pcm")
+	if err != nil {
+		return fmt.Errorf("failed to create form file: %w", err)
+	}
+
+	_, err = fileWriter.Write(pcmData)
+	if err != nil {
+		return fmt.Errorf("failed to write audio data: %w", err)
+	}
+
+	// Add file_format field
+	err = writer.WriteField("file_format", "pcm_s16le_16")
+	if err != nil {
+		return fmt.Errorf("failed to write file_format field: %w", err)
+	}
+
+	// Add language_code field (optional, defaults to "auto")
+	err = writer.WriteField("language_code", "auto")
+	if err != nil {
+		return fmt.Errorf("failed to write language_code field: %w", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	// Create HTTP request
+	fmt.Printf("Sending audio to backend: %s\n", backendURL)
+	req, err := http.NewRequest("POST", backendURL+"/speak", &buf)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
 
-	// Create a response recorder to capture the output
-	rr := httptest.NewRecorder()
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	fmt.Println("Calling HandleSpeak function directly...")
+	// Send request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
 
-	// Call the HandleSpeak function directly
-	handlers.HandleSpeak(rr, req, db, env)
+	// Read response
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
 
-	fmt.Printf("Response status: %d\n", rr.Code)
+	fmt.Printf("Response status: %d\n", resp.StatusCode)
 	fmt.Println("Response body:")
 
-	// Parse and display the SSE response
-	responseBody := rr.Body.String()
-	lines := strings.Split(responseBody, "\n")
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "event:") {
-			fmt.Printf("Event: %s\n", strings.TrimSpace(strings.TrimPrefix(line, "event:")))
-		} else if strings.HasPrefix(line, "data:") {
-			fmt.Printf("Data: %s\n", strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
+	// Parse and pretty-print JSON response
+	var jsonResponse map[string]interface{}
+	if err := json.Unmarshal(responseBody, &jsonResponse); err != nil {
+		// If not JSON, just print raw response
+		fmt.Println(string(responseBody))
+	} else {
+		prettyJSON, _ := json.MarshalIndent(jsonResponse, "", "  ")
+		fmt.Println(string(prettyJSON))
 	}
 
 	return nil
