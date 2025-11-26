@@ -49,10 +49,20 @@ func main() {
 	// Register custom routes with high priority (execute early)
 	app.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
 		Func: func(se *core.ServeEvent) error {
-			// Create transcription provider chain
+			// Create transcription providers
 			elevenlabsProvider := transcription.NewElevenLabsProvider(envVars.ElevenlabsAPIKey)
-			providerChain := transcription.NewProviderChain(elevenlabsProvider)
-			routes.Setup(se, app, providerChain)
+			chutesProvider := transcription.NewChutesProvider(envVars.ChutesAPIToken)
+
+			// Create provider chain: ElevenLabs first, then Chutes as fallback
+			providerChain := transcription.NewProviderChain(elevenlabsProvider, chutesProvider)
+
+			// Create providers map for direct provider selection
+			providers := map[transcription.ProviderName]transcription.TranscriptionProvider{
+				transcription.ProviderElevenLabs: elevenlabsProvider,
+				transcription.ProviderChutes:     chutesProvider,
+			}
+
+			routes.Setup(se, app, providerChain, providers)
 			return se.Next()
 		},
 		Priority: 1, // Execute early (low number = early)

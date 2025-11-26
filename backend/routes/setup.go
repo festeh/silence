@@ -24,10 +24,10 @@ func SetCORSHeaders(re *core.RequestEvent) {
 // Configures the following endpoints:
 //   - POST /speak: Audio transcription (multipart or JSON)
 //   - OPTIONS /speak: CORS preflight handling
-func Setup(se *core.ServeEvent, app core.App, provider transcription.TranscriptionProvider) {
+func Setup(se *core.ServeEvent, app core.App, defaultProvider transcription.TranscriptionProvider, providers map[transcription.ProviderName]transcription.TranscriptionProvider) {
 	se.Router.POST("/speak", func(re *core.RequestEvent) error {
 		SetCORSHeaders(re)
-		return handlers.HandleSpeak(re, app, provider)
+		return handlers.HandleSpeak(re, app, defaultProvider, providers)
 	})
 
 	se.Router.OPTIONS("/speak", func(re *core.RequestEvent) error {

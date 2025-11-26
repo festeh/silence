@@ -38,10 +38,11 @@ type ErrorResponse struct {
 // @Param audio formData file true "Audio file (PCM or WAV format, max 32MB)"
 // @Param file_format formData string false "Audio format: 'pcm_s16le_16' or 'wav'. Defaults to 'pcm_s16le_16' for lower latency. Use pcm_s16le_16 for 16-bit PCM at 16kHz, mono, little-endian."
 // @Param language_code formData string false "ISO-639-1 or ISO-639-3 language code. Use 'auto' or omit for auto-detection. Examples: 'en', 'es', 'fr'"
+// @Param provider formData string false "Transcription provider: 'elevenlabs' or 'chutes'. Omit to use default provider chain with fallback."
 // @Success 200 {object} SuccessResponse "Transcription successful"
 // @Failure 400 {object} ErrorResponse "Bad request (invalid format, empty audio, etc.)"
 // @Router /speak [post]
-func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.TranscriptionProvider) error {
+func HandleSpeak(re *core.RequestEvent, app core.App, defaultProvider transcription.TranscriptionProvider, providers map[transcription.ProviderName]transcription.TranscriptionProvider) error {
 	logger.Info("Starting audio processing request")
 
 	// Set JSON response headers
@@ -74,6 +75,19 @@ func HandleSpeak(re *core.RequestEvent, app core.App, provider transcription.Tra
 	fileFormat := re.Request.FormValue("file_format")
 	if fileFormat == "" {
 		fileFormat = "pcm_s16le_16"
+	}
+
+	// Get optional provider from form (use default chain if not specified)
+	providerName := re.Request.FormValue("provider")
+	var provider transcription.TranscriptionProvider = defaultProvider
+	if providerName != "" {
+		name := transcription.ProviderName(providerName)
+		if p, ok := providers[name]; ok {
+			provider = p
+		} else {
+			logger.Error("Invalid provider specified", "provider", providerName)
+			return sendJSONError(re, fmt.Sprintf("Invalid provider: %s. Valid options: elevenlabs, chutes", providerName))
+		}
 	}
 
 	// Read the audio file data

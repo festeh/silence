@@ -20,6 +20,16 @@ const (
 	AudioFormatWAV AudioFormat = "wav"
 )
 
+// ProviderName represents a transcription provider identifier.
+type ProviderName string
+
+const (
+	// ProviderElevenLabs identifies the ElevenLabs transcription provider.
+	ProviderElevenLabs ProviderName = "elevenlabs"
+	// ProviderChutes identifies the Chutes AI transcription provider.
+	ProviderChutes ProviderName = "chutes"
+)
+
 // AudioMetadata contains information about audio format and encoding.
 type AudioMetadata struct {
 	Format        AudioFormat // Audio format (pcm_s16le_16 or wav)

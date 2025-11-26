@@ -25,6 +25,7 @@ func main() {
 
 	// Define command-line flags
 	backendURL := flag.String("url", "http://localhost:8090", "Backend URL to send audio to")
+	provider := flag.String("provider", "", "Transcription provider: 'elevenlabs' or 'chutes' (empty for default chain)")
 	flag.Parse()
 
 	var pcmData []byte
@@ -69,7 +70,7 @@ func main() {
 	}
 
 	// Send to backend API
-	err = sendToBackend(pcmData, *backendURL)
+	err = sendToBackend(pcmData, *backendURL, *provider)
 	if err != nil {
 		log.Fatal("Failed to send to backend:", err)
 	}
@@ -208,7 +209,7 @@ func readWAVFile(filePath string) ([]byte, error) {
 	return pcmData, nil
 }
 
-func sendToBackend(pcmData []byte, backendURL string) error {
+func sendToBackend(pcmData []byte, backendURL string, provider string) error {
 	// Create multipart form
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -234,6 +235,14 @@ func sendToBackend(pcmData []byte, backendURL string) error {
 	err = writer.WriteField("language_code", "auto")
 	if err != nil {
 		return fmt.Errorf("failed to write language_code field: %w", err)
+	}
+
+	// Add provider field if specified
+	if provider != "" {
+		err = writer.WriteField("provider", provider)
+		if err != nil {
+			return fmt.Errorf("failed to write provider field: %w", err)
+		}
 	}
 
 	err = writer.Close()
