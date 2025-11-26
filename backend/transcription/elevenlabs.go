@@ -78,6 +78,12 @@ func (p *ElevenLabsProvider) Transcribe(audioData []byte, opts TranscriptionOpti
 		}
 	}
 
+	// Disable audio event tagging (e.g., [music], [applause])
+	err = writer.WriteField("tag_audio_events", "false")
+	if err != nil {
+		return nil, fmt.Errorf("failed to write tag_audio_events field: %v", err)
+	}
+
 	// Add audio file
 	fileWriter, err := writer.CreateFormFile("file", filename)
 	if err != nil {
